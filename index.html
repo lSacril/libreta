@@ -1,18 +1,22 @@
 <!doctype html>
 <html lang="es">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nmLxHdX3nJoDQptis/pNaNaNABacEfsnlxvgWfK7rbw=' 'sha256-MHVigBoUsmMMO1dQ3kcrjFdoEvgtE1lan4nscMBVZYY=' 'sha256-acLtK7AlAr8a/i1Z2BojJMlSISrY3a8pzbetOospih0='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
 <meta name="referrer" content="no-referrer">
-<script>if (window.top !== window.self) { document.documentElement.innerHTML = ""; throw new Error("frame"); }</script>
+<style id="fb">html{display:none!important}</style>
+<script>if (self === top) { document.getElementById('fb').remove(); } else { try { top.location = self.location.href; } catch (e) {} }</script>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1D4F91">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+@font-face{font-family:"Bricolage Grotesque";font-style:normal;font-weight:200 800;font-display:swap;src:url(fonts/bricolage.woff2) format("woff2")}
+@font-face{font-family:"Public Sans";font-style:normal;font-weight:100 900;font-display:swap;src:url(fonts/publicsans.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:100 800;font-display:swap;src:url(fonts/jetbrainsmono.woff2) format("woff2")}
+</style>
 <title>Libreta de Préstamos</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
 /* Layout: libreta de tinta azul sobre papel frío; header con pestañas (abajo en celular), tarjetas solo para préstamos y hojas emergentes */
 :root{
@@ -324,7 +328,22 @@ function scheduleByTotal(amount, n, total, firstDue, freq){
   }
   return {cuotas:out, rate:r2(i * 100)};
 }
-const paidOf = q =>r2(q.payments.reduce((s,p) => s + p.amount, 0));
+/* Tipos de pago: normal (cuenta para la cuota y es plata que entró), mora (plata que entró, recargo por atraso)
+   y descuento (cuenta para la cuota pero no es plata: lo que se perdonó al cancelar antes de tiempo) */
+const paidOf = q => r2(q.payments.reduce((s,p) => s + (p.mora ? 0 : p.amount), 0));
+const cashOf = q => r2(q.payments.reduce((s,p) => s + (p.desc ? 0 : p.amount), 0));
+const moraPaidOf = q => r2(q.payments.reduce((s,p) => s + (p.mora ? p.amount : 0), 0));
+const descOf = q => r2(q.payments.reduce((s,p) => s + (p.desc ? p.amount : 0), 0));
+const numOr = (v, d) => (v === '' || v == null || !isFinite(+v)) ? d : +v;
+function moraCfg(){ const c = (S && S.settings && S.settings.mora) || {}; return {rate:numOr(c.rate, 0.3), grace:numOr(c.grace, 3), cap:numOr(c.cap, 50)}; }
+/* Recargo por atraso de una cuota: % diario sobre lo que falta pagar, desde que termina la gracia, con un tope por cuota */
+function moraOf(q, asOf){
+  const c = moraCfg(); if(!(c.rate > 0)) return 0;
+  const rest = r2(q.amount - paidOf(q)); if(rest <= 0.5) return 0;
+  const days = daysBetween(q.due, asOf || today()) - c.grace; if(days <= 0) return 0;
+  const acc = Math.min(rest * c.rate / 100 * days, q.amount * c.cap / 100);
+  return Math.max(0, r2(acc - moraPaidOf(q)));
+}
 function qStatus(q){
   const p = paidOf(q);
   if(p >= q.amount - 0.5) return 'pagada';
@@ -333,16 +352,45 @@ function qStatus(q){
   return 'pendiente';
 }
 function loanStats(l){
-  let total = 0, paid = 0, overdue = 0, paidCount = 0, interest = 0, next = null, oldestLate = null;
+  let total = 0, paid = 0, overdue = 0, paidCount = 0, interest = 0, next = null, oldestLate = null, mora = 0, cash = 0, moraPaid = 0, desc = 0;
   l.cuotas.forEach(q => {
     const p = paidOf(q), st = qStatus(q);
-    total += q.amount; paid += p; interest += q.interest;
+    total += q.amount; paid += p; interest += q.interest; cash += cashOf(q); moraPaid += moraPaidOf(q); desc += descOf(q);
     if(st === 'pagada') paidCount++;
-    else { if(!next) next = q; if(st === 'vencida'){ overdue += q.amount - p; if(!oldestLate) oldestLate = q; } }
+    else { if(!next) next = q; if(st === 'vencida'){ overdue += q.amount - p; mora += moraOf(q); if(!oldestLate) oldestLate = q; } }
   });
   const owed = r2(total - paid);
   const status = owed <= 0.5 ? 'terminado' : overdue > 0.5 ? 'atrasado' : 'al-dia';
-  return {total:r2(total), paid:r2(paid), owed:Math.max(0, owed), overdue:r2(overdue), paidCount, interest:r2(interest), next, oldestLate, status, cuota:l.cuotas[0] ? l.cuotas[0].amount : 0};
+  return {total:r2(total), paid:r2(paid), owed:Math.max(0, owed), overdue:r2(overdue), paidCount, interest:r2(interest), next, oldestLate, status, cuota:l.cuotas[0] ? l.cuotas[0].amount : 0,
+    mora:r2(mora), cash:r2(cash), moraPaid:r2(moraPaid), desc:r2(desc)};
+}
+/* Adelanto de cuotas: se pagan las próximas k cuotas pendientes. Cada cuota que todavía no venció
+   lleva un descuento de pct% sobre su parte de interés; las vencidas se cobran completas. */
+function advanceCalc(l, k, pctVal, date){
+  const pct = Math.min(100, Math.max(0, numOr(pctVal, 0)));
+  const unpaid = l.cuotas.filter(q => paidOf(q) < q.amount - 0.5);
+  k = Math.min(unpaid.length, Math.max(1, Math.round(numOr(k, 1))));
+  const parts = unpaid.slice(0, k).map(q => {
+    const rest = r2(q.amount - paidOf(q)), late = q.due < date, inte = late ? 0 : Math.min(q.interest, rest);
+    return {q, rest, late, inte:r2(inte), disc:r2(inte * pct / 100), mora:moraOf(q, date)};
+  });
+  const sum = key => r2(parts.reduce((a, p) => a + p[key], 0));
+  return {pct, k, max:unpaid.length, parts, owed:sum('rest'), inte:sum('inte'), disc:sum('disc'), mora:sum('mora')};
+}
+/* Cancelación anticipada: se paga todo lo que falta, menos un % de los intereses de las cuotas que todavía no empezaron a correr.
+   Las cuotas vencidas y la cuota en curso se cobran completas. */
+function payoffCalc(l, pct, date){
+  pct = Math.min(100, Math.max(0, numOr(pct, 0)));
+  const unpaid = l.cuotas.filter(q => paidOf(q) < q.amount - 0.5);
+  const cur = unpaid.findIndex(q => q.due >= date);
+  let owed = 0, future = 0, mora = 0; const parts = [];
+  unpaid.forEach((q, k) => {
+    const rest = r2(q.amount - paidOf(q)), fi = cur >= 0 && k > cur ? Math.min(q.interest, rest) : 0;
+    owed += rest; future += fi; mora += moraOf(q, date);
+    parts.push({q, rest, disc:r2(fi * pct / 100)});
+  });
+  const disc = r2(parts.reduce((a, p) => a + p.disc, 0));
+  return {pct, owed:r2(owed), future:r2(future), disc, mora:r2(mora), parts, total:r2(owed - disc)};
 }
 const STATUS = {
   'al-dia':['ok','Al día'], 'atrasado':['bad','Atrasado'], 'terminado':['done','Terminado'],
@@ -354,9 +402,9 @@ const pill = s => `<span class="pill ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
 function defaults(){ return {settings:{rates:{A:6, B:9, C:12}}, clients:[], loans:[], caja:[]}; }
 function seed(){
   const s = defaults(), t = today();
-  const c1 = {id:uid(), name:'Marta Giménez', phone:'11 5555-0101', cat:'A', notes:'Paga siempre por transferencia.', example:true};
-  const c2 = {id:uid(), name:'Diego Rodríguez', phone:'11 5555-0102', cat:'B', notes:'', example:true};
-  const c3 = {id:uid(), name:'Lucía Fernández', phone:'351 555-0103', cat:'C', notes:'Cliente nueva.', example:true};
+  const c1 = {id:uid(), name:'Marta Giménez', cat:'A', notes:'Paga siempre por transferencia.', example:true};
+  const c2 = {id:uid(), name:'Diego Rodríguez', cat:'B', notes:'', example:true};
+  const c3 = {id:uid(), name:'Lucía Fernández', cat:'C', notes:'Cliente nueva.', example:true};
   s.clients.push(c1, c2, c3);
   const mk = (c, amount, n, rate, first) => ({id:uid(), clientId:c.id, amount, n, rate, first, created:t, notes:'', example:true, cuotas:buildSchedule(amount, n, rate, first)});
   const l1 = mk(c1, 300000, 6, 6, addDays(addMonths(t,-3), 5));
@@ -403,7 +451,7 @@ function save(){
 /* Capital: lo que cargás a mano, menos lo que prestaste "de tu capital", más lo que cobraste de esos préstamos */
 function capitalNow(){
   let v = S.caja.reduce((s,m) => s + m.amount, 0);
-  S.loans.forEach(l => { if(l.fromCaja){ v -= l.amount; l.cuotas.forEach(q => v += paidOf(q)); } });
+  S.loans.forEach(l => { if(l.fromCaja){ v -= l.amount; l.cuotas.forEach(q => v += cashOf(q)); } });
   return r2(v);
 }
 function capitalHtml(){
@@ -421,7 +469,7 @@ function capitalHtml(){
 }
 
 const UI ={tab:'resumen', filter:'activos', q:'', sheet:null, pendingImport:null};
-try { const t = localStorage.getItem(KEY + ':tab'); if(t) UI.tab = t; } catch(e){}
+try { const t = localStorage.getItem(KEY + ':tab'); if(['resumen', 'prestamos', 'clientes', 'ajustes'].includes(t)) UI.tab = t; } catch(e){}
 /* ---------- PIN y cifrado ----------
    Los datos se cifran con una clave aleatoria (AES-256). Esa clave se guarda "envuelta" dos veces:
    una con el PIN y otra con la llave de recuperación. Sin alguno de los dos, los datos no se pueden leer. */
@@ -447,6 +495,7 @@ async function wrapDK(raw, secret, iter){
   return {salt:b64(salt), iv:b64(iv), ct:b64(ct), iter};
 }
 async function unwrapDK(w, secret){
+  if(!w || !(w.iter >= 100000 && w.iter <= 2000000)) throw new Error('iter');
   return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(w.iv)}, await kekFrom(secret, unb64(w.salt), w.iter), unb64(w.ct)));
 }
 async function encWith(key, text){
@@ -464,7 +513,7 @@ function newRecoveryKey(){
 const normRec = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const validPin = p => /^\d{6,8}$/.test(p) && !/^(\d)\1+$/.test(p) && !'0123456789'.includes(p) && !'9876543210'.includes(p);
 const PIN_RULE = 'El PIN tiene que tener de 6 a 8 números y no puede ser fácil de adivinar (como 111111 o 123456).';
-async function sealDoc(d){ if(!DK) return d; const o = await encWith(DK, JSON.stringify(d)); return {id:d.id, enc:2, iv:o.iv, ct:o.ct}; }
+async function sealDoc(d){ if(!DK){ if(CAN_ENCRYPT) throw new Error('bloqueada'); return d; } const o = await encWith(DK, JSON.stringify(d)); return {id:d.id, enc:2, iv:o.iv, ct:o.ct}; }
 async function openDoc(r){
   if(r && r.enc === 2){ if(!DK) return null; try { return JSON.parse(await decWith(DK, r)); } catch(e){ return null; } }
   return r;
@@ -494,6 +543,7 @@ function screenUnlock(){
       <button class="btn" type="button" data-act="use-recovery">Entrar con la llave</button>
       <p class="note">Si tampoco tenés la llave, la única salida es borrar todo. Después podés restaurar una copia de seguridad.</p>`
       : `<p class="note">El PIN no se puede recuperar. La única salida es borrar los datos de este dispositivo. Después podés restaurar una copia de seguridad.</p>`}
+      <input id="wipe-confirm" type="text" autocomplete="off" placeholder="Escribí BORRAR para confirmar" aria-label="Confirmación para borrar todo" style="font-size:15px;letter-spacing:.04em">
       <button class="btn danger" type="button" data-act="forgot-wipe" data-confirm="Tocá de nuevo: se borra todo">Borrar todo y empezar de nuevo</button>
     </div>
   </form>`);
@@ -512,7 +562,7 @@ function screenSetup(mode){
   </form>`);
 }
 function screenRecovery(rec){
-  UI.showRec = rec;
+  UI.showRec = rec; UI.sensitive = true;
   showLock(`<div class="lock-box">
     <h1>Libreta</h1>
     <h2 style="margin:0;font-size:20px">Tu llave de recuperación</h2>
@@ -532,23 +582,32 @@ async function openData(raw){
   else { S = normalize(valid(blob) ? blob : (UI.startEmpty ? defaults() : seed())); migrate = true; }
   const recs = await DB.all();
   DOCS = (await Promise.all(recs.map(openDoc))).filter(Boolean);
+  const clean = sanitize({settings:S.settings, clients:S.clients, loans:S.loans, caja:S.caja, docs:DOCS});
+  S = normalize({settings:clean.settings, clients:clean.clients, loans:clean.loans, caja:clean.caja});
+  DOCS = clean.docs || [];
   if(migrate || recs.some(r => r && r.enc !== 2)){ await save(); await DB.replace(DOCS); }
 }
 function unlockApp(){
-  UI.locked = false;
+  UI.locked = false; UI.sensitive = false;
   const l = $('#lock'); l.hidden = true; l.innerHTML = '';
   document.querySelector('.app').hidden = false;
   render();
 }
+function dropMemory(){
+  S = null; DOCS = []; DK = null;
+  UI.pendingImport = null; UI.encImport = null; UI.showRec = null; UI.pendingRaw = null; UI.q = ''; UI.sensitive = false; UI.legacyPin = null;
+}
 async function lockApp(){
-  if(!getKeys() || UI.locked) return;
+  if(!getKeys() || (UI.locked && !UI.sensitive)) return;
   UI.locked = true; closeSheet();
   $('#view').innerHTML = ''; $('#banner').innerHTML = '';
   screenUnlock();
   await saveChain;
-  S = null; DOCS = []; DK = null;
-  UI.pendingImport = null; UI.encImport = null; UI.showRec = null; UI.pendingRaw = null;
+  dropMemory();
 }
+/* Un doble toque no puede disparar dos operaciones de PIN al mismo tiempo */
+let BUSY = false;
+async function once(fn){ if(BUSY) return; BUSY = true; try { await fn(); } finally { BUSY = false; } }
 /* Intentos fallidos guardados: recargar la página no reinicia la espera, y cada 5 fallos la espera se duplica (hasta 1 hora) */
 function failState(){ try { const s = JSON.parse(localStorage.getItem(FAIL_KEY)); return s && typeof s.n === 'number' ? s : {n:0, until:0}; } catch(e){ return {n:0, until:0}; } }
 function setFail(s){ try { localStorage.setItem(FAIL_KEY, JSON.stringify(s)); } catch(e){} }
@@ -557,6 +616,10 @@ async function tryUnlock(f){
   const pin = f.pin.value.trim(), fs = failState();
   if(Date.now() < fs.until){ f.pin.value = ''; return lockErr('Demasiados intentos. Esperá ' + waitText(fs.until - Date.now()) + '.'); }
   if(!pin) return lockErr('Ingresá tu PIN.');
+  /* El intento se cuenta antes de probarlo; si es correcto, se borra */
+  fs.n++;
+  if(fs.n % 5 === 0) fs.until = Date.now() + Math.min(3600000, 30000 * Math.pow(2, fs.n / 5 - 1));
+  setFail(fs);
   lockErr('Abriendo…');
   const keys = getKeys();
   if(keys){
@@ -567,26 +630,23 @@ async function tryUnlock(f){
       try { await openData(raw); unlockApp(); } catch(e){ lockErr('No se pudieron abrir los datos de este dispositivo.'); }
       return;
     }
-  } else if(getPin() && await checkPin(pin)){ setFail({n:0, until:0}); screenSetup('legacy'); return; }
-  fs.n++; f.pin.value = '';
-  if(fs.n % 5 === 0){
-    const ms = Math.min(3600000, 30000 * Math.pow(2, fs.n / 5 - 1));
-    fs.until = Date.now() + ms;
-    lockErr('PIN incorrecto. Esperá ' + waitText(ms) + ' para volver a probar.');
-  } else lockErr('PIN incorrecto. Te quedan ' + (5 - fs.n % 5) + ' intentos antes de tener que esperar.');
-  setFail(fs);
+  } else if(getPin() && await checkPin(pin)){ setFail({n:0, until:0}); UI.legacyPin = pin; screenSetup('legacy'); return; }
+  f.pin.value = '';
+  if(fs.until > Date.now()) lockErr('PIN incorrecto. Esperá ' + waitText(fs.until - Date.now()) + ' para volver a probar.');
+  else lockErr('PIN incorrecto. Te quedan ' + (5 - fs.n % 5) + ' intentos antes de tener que esperar.');
 }
 async function createPin(f){
   const pin = f.pin.value.trim(), rep = f.rep.value.trim();
   if(!validPin(pin)) return lockErr(PIN_RULE);
   if(pin !== rep) return lockErr('Los dos PIN no coinciden.');
+  if(UI.legacyPin && pin === UI.legacyPin) return lockErr('Elegí un PIN distinto al anterior: el viejo se guardaba con una protección más débil.');
   lockErr('Protegiendo tus datos…');
   try {
     const raw = crypto.getRandomValues(new Uint8Array(32)), rec = newRecoveryKey();
     setKeys({v:1, pin:await wrapDK(raw, pin, PIN_ITER), rec:await wrapDK(raw, normRec(rec), REC_ITER)});
     await openData(raw);
     try { localStorage.removeItem(PIN_KEY); } catch(e){}
-    UI.startEmpty = false;
+    UI.startEmpty = false; UI.legacyPin = null;
     screenRecovery(rec);
   } catch(e){ lockErr('No se pudo crear el PIN en este navegador.'); }
 }
@@ -595,10 +655,13 @@ async function resetPin(f){
   if(!validPin(pin)) return lockErr(PIN_RULE);
   if(pin !== rep) return lockErr('Los dos PIN no coinciden.');
   const keys = getKeys(); if(!keys || !UI.pendingRaw) return screenUnlock();
+  lockErr('Abriendo…');
   keys.pin = await wrapDK(UI.pendingRaw, pin, PIN_ITER); setKeys(keys);
+  try { await openData(UI.pendingRaw); } catch(e){ UI.pendingRaw = null; return lockErr('No se pudieron abrir los datos de este dispositivo.'); }
   UI.pendingRaw = null; setFail({n:0, until:0});
   unlockApp(); toast('PIN nuevo creado');
 }
+/* Con la llave solo se verifica; los datos recién se abren cuando ya hay PIN nuevo */
 async function useRecovery(){
   const keys = getKeys(), v = normRec(($('#rec-key') || {}).value);
   if(!keys) return;
@@ -606,8 +669,7 @@ async function useRecovery(){
   lockErr('Comprobando la llave…');
   let raw = null;
   try { raw = await unwrapDK(keys.rec, v); } catch(e){ return lockErr('La llave no es correcta.'); }
-  try { await openData(raw); } catch(e){ return lockErr('No se pudieron abrir los datos de este dispositivo.'); }
-  UI.pendingRaw = raw; screenSetup('reset');
+  UI.pendingRaw = raw; screenSetup('reset'); UI.sensitive = true;
 }
 async function pinForm(f){
   const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
@@ -620,16 +682,24 @@ async function pinForm(f){
   keys.pin = await wrapDK(raw, nw, PIN_ITER); setKeys(keys);
   render(); toast('PIN cambiado');
 }
+/* Llave nueva = clave de cifrado nueva: se vuelve a cifrar todo, así ni la llave vieja ni copias viejas de las claves sirven */
 async function newRecovery(){
   const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
-  const keys = getKeys(); if(!keys) return;
-  let raw;
-  try { raw = await unwrapDK(keys.pin, ($('#pin-cur') || {}).value.trim()); } catch(e){ return err('Para generar una llave nueva, escribí tu PIN actual en "PIN actual".'); }
-  const rec = newRecoveryKey();
-  keys.rec = await wrapDK(raw, normRec(rec), REC_ITER); setKeys(keys);
+  const keys = getKeys(); if(!keys || !S) return;
+  const pin = String(($('#pin-cur') || {}).value || '').trim();
+  try { await unwrapDK(keys.pin, pin); } catch(e){ return err('Para generar una llave nueva, escribí tu PIN actual en "PIN actual".'); }
+  toast('Cifrando todo con una clave nueva…');
+  const raw = crypto.getRandomValues(new Uint8Array(32)), rec = newRecoveryKey();
+  const newDK = await crypto.subtle.importKey('raw', raw, {name:'AES-GCM'}, false, ['encrypt', 'decrypt']);
+  const newKeys = {v:1, pin:await wrapDK(raw, pin, PIN_ITER), rec:await wrapDK(raw, normRec(rec), REC_ITER)};
+  await saveChain;
+  const blob = await encWith(newDK, JSON.stringify(S));
+  DK = newDK;
+  await DB.replace(DOCS);
+  setKeys(newKeys);
+  localStorage.setItem(KEY, JSON.stringify({enc:2, iv:blob.iv, ct:blob.ct}));
   openSheet({type:'rec', rec});
 }
-
 UI.calcMode = 'total';
 try { const m = localStorage.getItem(KEY + ':calc'); if(m === 'tasa') UI.calcMode = 'tasa'; } catch(e){}
 const client = id => S.clients.find(c => c.id === id) || {name:'(cliente borrado)', cat:'B'};
@@ -662,11 +732,12 @@ function compressImage(file){
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file), img = new Image();
     img.onload = () => {
+      if(!(img.naturalWidth > 0 && img.naturalHeight > 0) || img.naturalWidth * img.naturalHeight > 60e6){ URL.revokeObjectURL(url); rej(new Error('tamaño')); return; }
       const max = 1600, k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url); res(cv.toDataURL('image/jpeg', 0.75));
+      URL.revokeObjectURL(url); const out = cv.toDataURL('image/jpeg', 0.75); if(!sImg(out)) rej(new Error('vacía')); else res(out);
     };
     img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('imagen')); };
     img.src = url;
@@ -732,23 +803,23 @@ function vResumen(){
 }
 function vResumenBody(){
   if(!S.loans.length) return `<section class="panel"><h2>Todavía no cargaste préstamos</h2><p class="note">Primero agregá un cliente y después registrá el préstamo. La app calcula la cuota y arma el calendario de pagos.</p><div class="toolbar"><button class="btn primary" data-act="new-loan">Nuevo préstamo</button><button class="btn" data-act="new-client">Nuevo cliente</button></div></section>`;
-  let owed = 0, paid = 0, capital = 0, overdue = 0, interestLeft = 0, active = 0;
+  let owed = 0, paid = 0, capital = 0, overdue = 0, interestLeft = 0, active = 0, moraT = 0;
   const late = [], upcoming = []; const t = today(), lim = addDays(t, 15);
   S.loans.forEach(l => {
     const st = loanStats(l);
-    owed += st.owed; paid += st.paid; overdue += st.overdue;
+    owed += st.owed; paid += st.cash; overdue += st.overdue; moraT += st.mora;
     if(st.status !== 'terminado'){ capital += l.amount; active++; }
     l.cuotas.forEach(q => { const qs = qStatus(q); if(qs !== 'pagada') interestLeft += Math.max(0, q.interest - Math.max(0, paidOf(q) - q.capital)); if((qs === 'pendiente' || qs === 'parcial') && q.due <= lim) upcoming.push({l, q}); });
     if(st.status === 'atrasado') late.push({l, st});
   });
   late.sort((a,b) => a.st.oldestLate.due.localeCompare(b.st.oldestLate.due));
   upcoming.sort((a,b) => a.q.due.localeCompare(b.q.due));
-  const lateRows = late.map(({l, st}) => { const d = daysBetween(st.oldestLate.due, t); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${esc(client(l.clientId).name)}</span><span class="d">Cuota ${st.oldestLate.n}/${l.n} · venció el ${fdate(st.oldestLate.due)} (hace ${d} día${d===1?'':'s'})</span><span class="a"><span class="num" style="color:var(--bad);font-weight:700">${money(st.overdue)}</span>${pill('vencida')}</span></button>`; }).join('');
+  const lateRows = late.map(({l, st}) => { const d = daysBetween(st.oldestLate.due, t); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${esc(client(l.clientId).name)}</span><span class="d">Cuota ${st.oldestLate.n}/${l.n} · venció el ${fdate(st.oldestLate.due)} (hace ${d} día${d===1?'':'s'})</span><span class="a"><span class="num" style="color:var(--bad);font-weight:700">${money(st.overdue)}</span>${st.mora > 0.5 ? '<span class="small" style="color:var(--bad)">+ ' + money(st.mora) + ' de mora</span>' : ''}${pill('vencida')}</span></button>`; }).join('');
   const upRows = upcoming.map(({l, q}) => { const d = daysBetween(t, q.due); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${esc(client(l.clientId).name)}</span><span class="d">Cuota ${q.n}/${l.n} · ${d === 0 ? 'vence hoy' : 'vence el ' + fdate(q.due) + ' (en ' + d + ' día' + (d===1?'':'s') + ')'}</span><span class="a"><span class="num" style="font-weight:700">${money(q.amount - paidOf(q))}</span>${qStatus(q) === 'parcial' ? pill('parcial') : ''}</span></button>`; }).join('');
   return `
   <section class="stats" aria-label="Totales">
     <div class="stat"><span class="lbl">Por cobrar</span><span class="val">${money(owed)}</span><span class="sub">${active} préstamo${active===1?'':'s'} activo${active===1?'':'s'}</span></div>
-    <div class="stat ${overdue > 0.5 ? 'bad' : ''}"><span class="lbl">Vencido</span><span class="val">${money(overdue)}</span><span class="sub">${late.length} con atraso</span></div>
+    <div class="stat ${overdue > 0.5 ? 'bad' : ''}"><span class="lbl">Vencido</span><span class="val">${money(overdue)}</span><span class="sub">${late.length} con atraso${moraT > 0.5 ? ' · + ' + money(moraT) + ' de mora' : ''}</span></div>
     <div class="stat"><span class="lbl">Cobrado</span><span class="val">${money(paid)}</span><span class="sub">en total</span></div>
     <div class="stat"><span class="lbl">Capital prestado</span><span class="val">${money(capital)}</span><span class="sub">intereses por cobrar: ${money(interestLeft)}</span></div>
   </section>
@@ -810,6 +881,19 @@ function vAjustes(){
     <p class="note"><b>Para tener en cuenta:</b> en Argentina no hay una tasa máxima fija para préstamos entre particulares, pero un juez puede reducir intereses que considere desproporcionados (art. 771 del Código Civil y Comercial), comparándolos con las tasas bancarias del momento. Mirá siempre la TEA: es lo que el préstamo cuesta en un año.</p>
   </section>
   <section class="panel">
+    <h3>Cobros</h3>
+    <div class="field"><label for="set-lender">Tu nombre (aparece en los recibos)</label><input id="set-lender" type="text" maxlength="100" data-set="lenderName" value="${esc(S.settings.lenderName || '')}" placeholder="Ej.: Jeremías"></div>
+    <div class="rates">
+      <div class="field"><label for="set-mora">Mora: % por día de atraso</label><input id="set-mora" type="number" min="0" max="5" step="0.05" inputmode="decimal" data-set="mora.rate" value="${moraCfg().rate}"></div>
+      <div class="field"><label for="set-grace">Días de gracia</label><input id="set-grace" type="number" min="0" max="60" step="1" inputmode="numeric" data-set="mora.grace" value="${moraCfg().grace}"></div>
+      <div class="field"><label for="set-cap">Tope de mora (% de la cuota)</label><input id="set-cap" type="number" min="0" max="200" step="5" inputmode="numeric" data-set="mora.cap" value="${moraCfg().cap}"></div>
+    </div>
+    <p class="note small" style="margin:0">Con 0,3% diario y 3 días de gracia, una cuota de $50.000 que se paga 10 días tarde suma $1.050 de mora. Poné 0 para no cobrar mora. Igual que los intereses, un juez puede reducir punitorios que considere abusivos.</p>
+    <div class="field"><label for="set-payoff">Cancelación anticipada: descuento sobre intereses futuros (%)</label><input id="set-payoff" type="number" min="0" max="100" step="5" inputmode="numeric" data-set="payoffDisc" value="${numOr(S.settings.payoffDisc, 50)}"></div>
+    <div class="field"><label for="set-advance">Adelanto de cuotas: descuento sobre el interés de cada cuota (%)</label><input id="set-advance" type="number" min="0" max="100" step="5" inputmode="numeric" data-set="advanceDisc" value="${numOr(S.settings.advanceDisc, 10)}"></div>
+    <p class="note small" style="margin:0">Solo se descuenta de los intereses de las cuotas que todavía no empezaron. Con 50%, si faltaban $20.000 de esos intereses, el cliente se ahorra $10.000 y vos igual cobrás el resto. Lo podés cambiar en cada caso.</p>
+  </section>
+  <section class="panel">
     <h3>PIN y cifrado</h3>
     ${CAN_ENCRYPT ? `<p class="note">Tus datos están cifrados en este dispositivo. Para abrirlos hace falta el PIN o la llave de recuperación.</p>
     <form data-form="pin" novalidate>
@@ -828,7 +912,7 @@ function vAjustes(){
   <section class="panel">
     <h3>Copia de seguridad</h3>
     <p class="note">Los datos se guardan solo en este navegador y en este dispositivo. Para pasarlos del celular a la PC (o al revés), o para no perderlos, hacé una copia y restaurala en el otro dispositivo.</p>
-    <div class="field"><label for="bk-pass">Contraseña para la copia (obligatoria, mínimo 8 caracteres)</label><input id="bk-pass" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></div>
+    <div class="field"><label for="bk-pass">Contraseña para la copia (obligatoria: 10 caracteres o más, no solo números)</label><div style="display:flex;gap:8px"><input id="bk-pass" type="password" autocomplete="new-password" placeholder="Mínimo 10 caracteres" style="flex:1;min-width:0"><button class="btn" type="button" data-act="gen-bkpass">Generar</button></div></div>
     <p class="note small" style="margin:0">Con contraseña, la copia queda cifrada: si alguien la ve en tu WhatsApp, mail o Drive, no puede leer los DNI ni los datos. Sin la contraseña no se puede restaurar, así que anotala en un lugar seguro.</p>
     <div class="toolbar"><button class="btn primary" data-act="export-file">Descargar copia</button><button class="btn" data-act="export-copy">Copiar copia al portapapeles</button></div>
     <p class="note small">Si "Descargar" no hace nada (pasa en la versión online), usá "Copiar" y pegá el texto en una nota o en un chat contigo mismo.</p>
@@ -854,6 +938,9 @@ function render(){
   $('#hoy').textContent = 'hoy ' + fdate(today());
   const ex = S.clients.some(c => c.example) || S.loans.some(l => l.example);
   let b = '';
+  const hasReal = S.loans.some(l => !l.example) || S.clients.some(c => !c.example);
+  const lastBk = S.settings.lastBackup, bkDays = lastBk ? daysBetween(lastBk, today()) : null;
+  if(hasReal && (bkDays === null || bkDays >= 14)) b += `<div class="banner"><span><b>${bkDays === null ? 'Todavía no hiciste ninguna copia de seguridad.' : 'Hace ' + bkDays + ' días que no hacés una copia de seguridad.'}</b> Si perdés el celular, perdés todo.</span><button class="btn sm primary" data-act="go-backup">Hacer copia ahora</button></div>`;
   if(ex) b += `<div class="banner"><span><b>Datos de ejemplo.</b> Marta, Diego y Lucía son inventados para que veas cómo funciona.</span><button class="btn sm" data-act="clear-examples">Borrar ejemplos y empezar</button></div>`;
   if(!DB.ok) b += `<div class="banner"><span><b>Las fotos de pagarés no se pueden guardar</b> en este navegador. Se ven ahora, pero se pierden al cerrar.</span></div>`;
   if(!storageOK) b += `<div class="banner"><span><b>No se pueden guardar datos</b> en este navegador (modo incógnito o almacenamiento bloqueado). Lo que cargues se pierde al cerrar.</span></div>`;
@@ -874,15 +961,22 @@ function renderSheet(){
   if(s.type === 'loan'){
     const l = loan(s.id); if(!l){ closeSheet(); return; }
     const st = loanStats(l), c = client(l.clientId);
-    const rows = l.cuotas.map((q, i) => { const qs = qStatus(q), p = paidOf(q); return `<tr class="${qs === 'vencida' ? 'is-bad' : ''}"><td class="num">${q.n}</td><td>${fdate(q.due)}</td><td class="r num">${money(q.amount)}</td><td class="r num">${p ? money(p) : '—'}</td><td>${pill(qs)}</td><td><div class="acts">${qs !== 'pagada' ? `<button class="btn sm primary" data-act="pay" data-id="${l.id}" data-i="${i}">Cobrar</button>` : ''}${q.payments.length ? `<button class="btn sm link" data-act="undo" data-id="${l.id}" data-i="${i}" title="Deshacer el último pago de esta cuota">Deshacer</button>` : ''}</div></td></tr>`; }).join('');
+    const rows = l.cuotas.map((q, i) => {
+      const qs = qStatus(q), p = paidOf(q), mo = qs === 'vencida' ? moraOf(q) : 0, mp = moraPaidOf(q), dc = descOf(q), hasCash = q.payments.some(x => !x.desc);
+      return `<tr class="${qs === 'vencida' ? 'is-bad' : ''}"><td class="num">${q.n}</td><td>${fdate(q.due)}</td><td class="r num">${money(q.amount)}</td>
+        <td class="r num">${p ? money(p - dc) : '—'}${dc > 0.5 ? '<div class="small muted">desc. ' + money(dc) + '</div>' : ''}${mp > 0.5 ? '<div class="small muted">+ mora ' + money(mp) + '</div>' : ''}</td>
+        <td>${pill(qs)}${mo > 0.5 ? '<div class="small" style="color:var(--bad);margin-top:3px">+ ' + money(mo) + ' de mora</div>' : ''}</td>
+        <td><div class="acts">${qs !== 'pagada' ? `<button class="btn sm primary" data-act="pay" data-id="${l.id}" data-i="${i}">Cobrar</button>` : ''}${hasCash ? `<button class="btn sm link" data-act="receipt" data-id="${l.id}" data-i="${i}">Recibo</button>` : ''}${q.payments.length ? `<button class="btn sm link" data-act="undo" data-id="${l.id}" data-i="${i}" title="Deshacer el último cobro de esta cuota, con todo lo que se registró junto">Deshacer</button>` : ''}</div></td></tr>`;
+    }).join('');
     box.innerHTML = sheetFrame(`${catBadge(c.cat)} ${esc(c.name)}`, `
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${pill(st.status)}<span class="muted small">Préstamo del ${fdate(l.created)}${l.example ? ' · ejemplo' : ''}</span></div>
+      ${s.lastGroup ? `<div class="banner" style="margin:0;border-style:solid;border-color:var(--ok);background:var(--ok-soft)"><span><b style="color:var(--ok)">Cobro registrado.</b> Mandale el recibo al cliente.</span><button class="btn sm primary" data-act="receipt" data-id="${l.id}" data-group="${esc(s.lastGroup)}">Copiar recibo</button></div>` : ''}
       <dl class="facts" style="margin:0">
         <div><dt>Le prestaste</dt><dd>${money(l.amount)}</dd></div>
         <div><dt>Te devuelve en total</dt><dd>${money(st.total)}</dd></div>
-        <div><dt>Ganancia</dt><dd style="color:var(--ok)">${money(st.total - l.amount)}</dd></div>
+        <div><dt>Ganancia</dt><dd style="color:var(--ok)">${money(st.total - l.amount - st.desc + st.moraPaid)}</dd></div>
         <div><dt>Cuota</dt><dd>${money(st.cuota)}</dd></div>
-        <div><dt>Ya cobraste</dt><dd>${money(st.paid)}</dd></div>
+        <div><dt>Ya cobraste</dt><dd>${money(st.cash)}</dd></div>
         <div><dt>Falta cobrar</dt><dd style="color:${st.overdue > .5 ? 'var(--bad)' : 'inherit'}">${money(st.owed)}</dd></div>
       </dl>
       <p class="note small" style="margin:0">Cuotas ${PER[freqOf(l)].plural} · tasa ${pct(l.rate)} ${PER[freqOf(l)].word}${freqOf(l) === 'semanal' ? ' (≈ ' + pct(r2(monthlyFromWeekly(l.rate))) + ' mensual)' : ''} · equivale a ${pct(Math.round(teaP(l.rate, freqOf(l))))} anual (TEA)</p>
@@ -891,7 +985,7 @@ function renderSheet(){
       <div><h3>Cronograma · ${l.n} cuotas ${PER[freqOf(l)].plural}</h3>
       <div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Vence</th><th class="r">Cuota</th><th class="r">Pagado</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>
       ${l.notes ? `<p class="note">${esc(l.notes)}</p>` : ''}
-      <div class="toolbar">${st.next ? `<button class="btn" data-act="reminder" data-id="${l.id}">Copiar recordatorio</button>` : ''}<span style="flex:1"></span><button class="btn danger" data-act="del-loan" data-id="${l.id}" data-confirm="Tocá de nuevo para borrar">Borrar préstamo</button></div>`);
+      <div class="toolbar">${st.next ? `<button class="btn" data-act="reminder" data-id="${l.id}">Copiar recordatorio</button>${l.cuotas.filter(q => paidOf(q) < q.amount - 0.5).length > 1 ? `<button class="btn" data-act="advance" data-id="${l.id}">Adelantar cuotas</button>` : ''}<button class="btn" data-act="payoff" data-id="${l.id}">Cancelación anticipada</button>` : ''}<span style="flex:1"></span><button class="btn danger" data-act="del-loan" data-id="${l.id}" data-confirm="Tocá de nuevo para borrar">Borrar préstamo</button></div>`);
   }
   else if(s.type === 'new-loan'){
     const sel = s.clientId && S.clients.some(c => c.id === s.clientId) ? s.clientId : '__new';
@@ -975,7 +1069,7 @@ function renderSheet(){
     S.loans.filter(l => l.fromCaja).forEach(l => {
       const name = client(l.clientId).name;
       movs.push({date:l.created, amount:-l.amount, text:'Préstamo a ' + name, loanId:l.id});
-      l.cuotas.forEach(q => q.payments.forEach(p => movs.push({date:p.date, amount:p.amount, text:'Cobro cuota ' + q.n + '/' + l.n + ' · ' + name, loanId:l.id})));
+      l.cuotas.forEach(q => q.payments.filter(p => !p.desc).forEach(p => movs.push({date:p.date, amount:p.amount, text:(p.mora ? 'Mora cuota ' : 'Cobro cuota ') + q.n + '/' + l.n + ' · ' + name, loanId:l.id})));
     });
     movs.sort((a,b) => b.date.localeCompare(a.date));
     const rows = movs.map(m => `<tr><td>${fdate(m.date)}</td><td style="overflow-wrap:anywhere">${esc(m.text)}</td><td class="r num" style="color:${m.amount < 0 ? 'var(--bad)' : 'var(--ok)'};font-weight:700">${m.amount < 0 ? '−' : '+'}${money(Math.abs(m.amount))}</td><td class="r">${m.id ? `<button class="btn sm link" data-act="del-mov" data-id="${m.id}" data-confirm="¿Borrar?">Borrar</button>` : ''}</td></tr>`).join('');
@@ -993,18 +1087,80 @@ function renderSheet(){
   else if(s.type === 'pay'){
     const l = loan(s.id); if(!l){ closeSheet(); return; }
     const q = l.cuotas[s.i], rest = r2(q.amount - paidOf(q)), st = loanStats(l);
+    const mora = r2(l.cuotas.reduce((a, x) => a + moraOf(x), 0));
     box.innerHTML = sheetFrame(`Cobrar cuota ${q.n}/${l.n}`, `
       <p class="note">${esc(client(l.clientId).name)} · vence el ${fdate(q.due)} · cuota de <span class="num">${money(q.amount)}</span>${paidOf(q) ? ', ya pagó ' + money(paidOf(q)) : ''}.</p>
       <form data-form="pay" novalidate>
+        ${mora > 0.5 ? `<label class="check" for="py-mora"><input type="checkbox" id="py-mora" name="mora" checked data-rest="${rest}" data-mora="${mora}"> Cobrar también el recargo por atraso: <b class="num">${money(mora)}</b></label>` : ''}
         <div class="grid2">
-          <div class="field"><label for="py-amount">Monto cobrado ($)</label><input id="py-amount" name="amount" type="number" min="1" step="0.01" inputmode="decimal" value="${rest}" required autofocus></div>
+          <div class="field"><label for="py-amount">Monto cobrado ($)</label><input id="py-amount" name="amount" type="number" min="1" step="0.01" inputmode="decimal" value="${r2(rest + mora)}" required autofocus></div>
           <div class="field"><label for="py-date">Fecha</label><input id="py-date" name="date" type="date" value="${today()}" required></div>
         </div>
-        <p class="note small">Si cobrás más que la cuota, lo que sobra se aplica a las siguientes. Falta en total: <span class="num">${money(st.owed)}</span>.</p>
+        <p class="note small">${mora > 0.5 ? 'Primero se cubre la mora y después la cuota. ' : ''}Si cobrás más que la cuota, lo que sobra se aplica a las siguientes. Falta en total: <span class="num">${money(st.owed)}</span>.</p>
         <p class="note small" id="py-err" style="color:var(--bad)" hidden></p>
         <div class="toolbar"><button class="btn primary" type="submit">Registrar cobro</button><button class="btn" type="button" data-act="open-loan" data-id="${l.id}">Volver</button></div>
       </form>`);
   }
+  else if(s.type === 'advance'){
+    const l = loan(s.id); if(!l){ closeSheet(); return; }
+    const max = l.cuotas.filter(q => paidOf(q) < q.amount - 0.5).length;
+    box.innerHTML = sheetFrame('Adelantar cuotas', `
+      <p class="note">${esc(client(l.clientId).name)} te paga varias cuotas juntas. Se toman las próximas cuotas pendientes, en orden. A cada cuota que todavía no venció le descontás un % de su interés; las vencidas se cobran completas.</p>
+      <form data-form="advance" novalidate data-id="${l.id}">
+        <div class="rates">
+          <div class="field"><label for="ad-k">Cuotas que adelanta (máx. ${max})</label><input id="ad-k" name="k" type="number" min="1" max="${max}" step="1" inputmode="numeric" value="${Math.min(2, max)}" autofocus></div>
+          <div class="field"><label for="ad-pct">Descuento sobre el interés (%)</label><input id="ad-pct" name="pct" type="number" min="0" max="100" step="1" inputmode="numeric" value="${numOr(S.settings.advanceDisc, 10)}"></div>
+          <div class="field"><label for="ad-date">Fecha del pago</label><input id="ad-date" name="date" type="date" value="${today()}"></div>
+        </div>
+        <label class="check" for="ad-mora" id="ad-mora-wrap"><input type="checkbox" id="ad-mora" name="mora" checked> Cobrar el recargo por atraso de las cuotas vencidas</label>
+        <div id="ad-preview"></div>
+        <p class="note small" id="ad-err" style="color:var(--bad)" hidden></p>
+        <div class="toolbar"><button class="btn primary" type="submit">Registrar adelanto</button><button class="btn" type="button" data-act="open-loan" data-id="${l.id}">Volver</button></div>
+      </form>`);
+    updateAdvance();
+  }
+  else if(s.type === 'payoff'){
+    const l = loan(s.id); if(!l){ closeSheet(); return; }
+    const pct = numOr(S.settings.payoffDisc, 50);
+    box.innerHTML = sheetFrame('Cancelación anticipada', `
+      <p class="note">${esc(client(l.clientId).name)} quiere pagar todo hoy. Las cuotas vencidas y la cuota en curso se cobran completas; solo se descuenta una parte de los intereses de las cuotas que todavía no empezaron.</p>
+      <form data-form="payoff" novalidate data-id="${l.id}">
+        <div class="grid2">
+          <div class="field"><label for="po-pct">Descuento sobre intereses futuros (%)</label><input id="po-pct" name="pct" type="number" min="0" max="100" step="1" inputmode="numeric" value="${pct}"></div>
+          <div class="field"><label for="po-date">Fecha del pago</label><input id="po-date" name="date" type="date" value="${today()}"></div>
+        </div>
+        <label class="check" for="po-mora" id="po-mora-wrap"><input type="checkbox" id="po-mora" name="mora" checked> Cobrar el recargo por atraso</label>
+        <div class="preview" id="po-preview"></div>
+        <p class="note small" id="po-err" style="color:var(--bad)" hidden></p>
+        <div class="toolbar"><button class="btn primary" type="submit">Registrar cancelación</button><button class="btn" type="button" data-act="open-loan" data-id="${l.id}">Volver</button></div>
+      </form>`);
+    updatePayoff();
+  }
+}
+function updateAdvance(){
+  const f = document.querySelector('form[data-form="advance"]'); if(!f) return;
+  const l = loan(f.dataset.id); if(!l) return;
+  const date = f.date.value || today(), r = advanceCalc(l, f.k.value, f.pct.value, date);
+  const mora = f.mora.checked ? r.mora : 0, pay = r2(r.owed - r.disc + mora);
+  $('#ad-mora-wrap').hidden = !(r.mora > 0.5);
+  const rows = r.parts.map(p => `<tr><td class="num">${p.q.n}</td><td>${fdate(p.q.due)}${p.late ? ' <span class="small" style="color:var(--bad)">vencida</span>' : ''}</td><td class="r num">${money(p.rest)}</td><td class="r num">${p.late ? '—' : money(p.inte)}</td><td class="r num" style="color:var(--bad)">${p.disc > 0.004 ? '− ' + money(p.disc) : '—'}</td></tr>`).join('');
+  $('#ad-preview').innerHTML = `<div class="tbl-wrap"><table style="min-width:420px"><thead><tr><th>N°</th><th>Vence</th><th class="r">Cuota</th><th class="r">Interés</th><th class="r">Descuento</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="preview" style="margin-top:12px"><div><span>Cuotas (${r.parts.length})</span><b>${money(r.owed)}</b></div><div><span>Descuento (${pct(r.pct)} del interés)</span><b style="color:var(--bad)">− ${money(r.disc)}</b></div>
+    ${mora > 0.004 ? `<div><span>Mora</span><b>${money(mora)}</b></div>` : ''}
+    <div style="grid-column:1/-1;border-top:1px solid var(--line);padding-top:8px"><span>Te paga hoy</span><b style="font-size:22px">${money(pay)}</b></div>
+    <div style="grid-column:1/-1"><span>Dejás de ganar ${money(r.disc)}. El resto de las cuotas sigue igual.</span></div></div>`;
+}
+function updatePayoff(){
+  const f = document.querySelector('form[data-form="payoff"]'); if(!f) return;
+  const l = loan(f.dataset.id); if(!l) return;
+  const date = f.date.value || today(), r = payoffCalc(l, f.pct.value, date), st = loanStats(l);
+  const mora = f.mora.checked ? r.mora : 0, pay = r2(r.total + mora);
+  $('#po-mora-wrap').hidden = !(r.mora > 0.5);
+  const gain = r2(st.cash + pay - l.amount);
+  $('#po-preview').innerHTML = `<div><span>Falta en cuotas</span><b>${money(r.owed)}</b></div><div><span>Intereses futuros</span><b>${money(r.future)}</b></div>
+    <div><span>Descuento (${pct(r.pct)})</span><b style="color:var(--bad)">− ${money(r.disc)}</b></div><div><span>Mora</span><b>${money(mora)}</b></div>
+    <div style="grid-column:1/-1;border-top:1px solid var(--line);padding-top:8px"><span>Tiene que pagarte hoy</span><b style="font-size:22px">${money(pay)}</b></div>
+    <div style="grid-column:1/-1"><span>Con esto, tu ganancia total en este préstamo queda en <b style="font-size:inherit;color:${gain >= 0 ? 'var(--ok)' : 'var(--bad)'}">${money(gain)}</b> (sin cancelar antes iba a ser ${money(st.total - l.amount - st.desc + st.moraPaid + r.mora)}).</span></div>`;
 }
 function updatePreview(){
   const f = document.querySelector('form[data-form="loan"]'); if(!f) return;
@@ -1025,81 +1181,145 @@ function updatePreview(){
 }
 
 /* ---------- acciones ---------- */
-function applyPayment(l, i, amount, date){
-  let left = r2(amount);
+function applyPayment(l, i, amount, date, withMora){
+  let left = r2(amount); const group = uid();
+  if(withMora){
+    for(let k = 0; k < l.cuotas.length && left > 0.004; k++){
+      const q = l.cuotas[k], mo = moraOf(q, date);
+      if(mo <= 0.004) continue;
+      const take = r2(Math.min(mo, left));
+      q.payments.push({date, amount:take, mora:true, group});
+      left = r2(left - take);
+    }
+  }
   for(let k = i; k < l.cuotas.length && left > 0.004; k++){
     const q = l.cuotas[k], rest = r2(q.amount - paidOf(q));
     if(rest <= 0.004) continue;
     const take = r2(Math.min(rest, left));
-    q.payments.push({date, amount:take, group:null});
+    q.payments.push({date, amount:take, group});
     left = r2(left - take);
   }
-  return left;
+  return {left, group};
+}
+function applyAdvance(l, k, pctVal, date, withMora){
+  const r = advanceCalc(l, k, pctVal, date), group = uid();
+  r.parts.forEach(p => {
+    if(withMora && p.mora > 0.004) p.q.payments.push({date, amount:p.mora, mora:true, group});
+    const cash = r2(p.rest - p.disc);
+    if(cash > 0.004) p.q.payments.push({date, amount:cash, group});
+    if(p.disc > 0.004) p.q.payments.push({date, amount:p.disc, desc:true, group});
+  });
+  return group;
+}
+function applyPayoff(l, pctVal, date, withMora){
+  const r = payoffCalc(l, pctVal, date), group = uid();
+  if(withMora) l.cuotas.forEach(q => { const mo = moraOf(q, date); if(mo > 0.004) q.payments.push({date, amount:mo, mora:true, group}); });
+  r.parts.forEach(p => {
+    const cash = r2(p.rest - p.disc);
+    if(cash > 0.004) p.q.payments.push({date, amount:cash, group});
+    if(p.disc > 0.004) p.q.payments.push({date, amount:p.disc, desc:true, group});
+  });
+  return group;
+}
+/* Recibo de un cobro, en texto para WhatsApp */
+function receiptText(l, group){
+  const c = client(l.clientId), lender = String(S.settings.lenderName || '').trim();
+  let date = today(), total = 0, mora = 0, disc = 0; const nums = [];
+  l.cuotas.forEach(q => q.payments.forEach(p => {
+    if(p.group !== group) return;
+    date = p.date;
+    if(p.desc){ disc += p.amount; return; }
+    total += p.amount;
+    if(p.mora) mora += p.amount; else if(!nums.includes(q.n)) nums.push(q.n);
+  }));
+  const st = loanStats(l);
+  const concept = [nums.length ? (nums.length === 1 ? 'cuota ' : 'cuotas ') + nums.join(', ') + ' de ' + l.n : '', mora > 0.004 ? 'recargo por atraso ' + money(mora) : ''].filter(Boolean).join(' + ');
+  return ['*RECIBO DE PAGO*',
+    'Fecha: ' + fdate(date),
+    'Recibí de: ' + c.name + (c.dni ? ' (DNI ' + c.dni + ')' : ''),
+    'Monto: *' + money(total) + '*',
+    'Concepto: ' + concept,
+    disc > 0.004 ? 'Descuento por pago adelantado: ' + money(disc) : '',
+    'Préstamo del ' + fdate(l.created) + ' por ' + money(l.amount),
+    st.owed > 0.5 ? 'Saldo pendiente al día de hoy: ' + money(st.owed) : 'Préstamo *cancelado* en su totalidad.',
+    lender ? 'Recibió: ' + lender : ''].filter(Boolean).join('\n');
 }
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2600); }
-function copyText(text, okMsg){
-  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch(e){} ta.remove(); toast(ok ? okMsg : 'No se pudo copiar. Probá desde otro navegador.'); };
-  try { navigator.clipboard.writeText(text).then(() => toast(okMsg), fallback); } catch(e){ fallback(); }
+function copyText(text, okMsg, onOk){
+  const done = () => { toast(okMsg); if(onOk) onOk(); };
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch(e){} ta.remove(); if(ok) done(); else toast('No se pudo copiar. Probá desde otro navegador.'); };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch(e){ fallback(); }
 }
 function exportData(){ return JSON.stringify({app:'libreta-prestamos', version:2, exported:today(), settings:S.settings, clients:S.clients, loans:S.loans, caja:S.caja, docs:DOCS}); }
 
 /* ---------- copias con contraseña (AES-GCM, clave derivada con PBKDF2) ---------- */
 const b64 = buf => { let s = ''; const a = new Uint8Array(buf); for(let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-async function deriveKey(pass, salt){
+async function deriveKey(pass, salt, iter){
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:310000, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
 }
+const BK_ITER = 600000;
 async function encryptBackup(text, pass){
   const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await deriveKey(pass, salt), new TextEncoder().encode(text));
-  return JSON.stringify({app:'libreta-prestamos', enc:1, salt:b64(salt), iv:b64(iv), data:b64(ct)});
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await deriveKey(pass, salt, BK_ITER), new TextEncoder().encode(text));
+  return JSON.stringify({app:'libreta-prestamos', enc:1, iter:BK_ITER, salt:b64(salt), iv:b64(iv), data:b64(ct)});
 }
 async function decryptBackup(obj, pass){
-  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(obj.iv)}, await deriveKey(pass, unb64(obj.salt)), unb64(obj.data));
+  const iter = obj.iter >= 100000 && obj.iter <= 2000000 ? obj.iter : 310000;
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(obj.iv)}, await deriveKey(pass, unb64(obj.salt), iter), unb64(obj.data));
   return new TextDecoder().decode(pt);
 }
 async function buildExport(){
   const pass = ($('#bk-pass') || {}).value || '';
-  if(pass.length < 8){ toast('Poné una contraseña de al menos 8 caracteres para la copia.'); const i = $('#bk-pass'); if(i) i.focus(); return null; }
+  if(pass.length < 10 || /^\d+$/.test(pass) || /^(.)\1+$/.test(pass)){ toast('La contraseña de la copia tiene que tener al menos 10 caracteres y no ser solo números. Podés tocar "Generar".'); const i = $('#bk-pass'); if(i) i.focus(); return null; }
   try { return await encryptBackup(exportData(), pass); }
   catch(e){ toast('Este navegador no puede proteger la copia con contraseña.'); return null; }
 }
 
 /* ---------- limpieza de copias importadas: una copia manipulada no puede meter código ---------- */
-const sId = v => { const s = String(v ?? ''); return /^[a-z0-9]{1,40}$/i.test(s) ? s : uid(); };
-const sOptId = v => v == null || v === '' ? null : (/^[a-z0-9]{1,40}$/i.test(String(v)) ? String(v) : null);
-const sNum = (v, d = 0) => { const n = Number(v); return isFinite(n) ? n : d; };
-const sDate = (v, d) => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : d;
-const sStr = (v, max = 2000) => String(v ?? '').slice(0, max);
-const sImg = v => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(v)) ? String(v) : '';
-const isObj = v => v && typeof v === 'object';
+const prim = v => (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') ? v : undefined;
+const sId = v => { const s = String(prim(v) ?? ''); return /^[a-z0-9]{1,40}$/i.test(s) ? s : uid(); };
+const sOptId = v => { const p = prim(v); return p == null || p === '' ? null : (/^[a-z0-9]{1,40}$/i.test(String(p)) ? String(p) : null); };
+const sNum = (v, d = 0, lo = -1e12, hi = 1e12) => { const p = prim(v); const n = typeof p === 'number' ? p : (typeof p === 'string' && p.trim() !== '' ? Number(p) : NaN); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+const validISO = x => { if(!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false; const [y, m, dd] = x.split('-').map(Number); if(y < 1900 || y > 2100) return false; const u = new Date(Date.UTC(y, m - 1, dd)); return u.getUTCMonth() === m - 1 && u.getUTCDate() === dd; };
+const sDate = (v, d) => { const p = prim(v); return typeof p === 'string' && validISO(p) ? p : d; };
+const sStr = (v, max = 2000) => String(prim(v) ?? '').slice(0, max);
+const sImg = v => { const p = prim(v); return typeof p === 'string' && p.length < 15e6 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p) ? p : ''; };
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const LIMITS = {clients:5000, loans:10000, cuotas:520, payments:1000, caja:20000, docs:2000};
 function sanitize(d){
   const t = today();
-  const clients = d.clients.filter(isObj).map(c => {
+  const clients = d.clients.filter(isObj).slice(0, LIMITS.clients).map(c => {
     const o = {id:sId(c.id)};
-    CLIENT_KEYS.forEach(k => { if(c[k] != null) o[k] = sStr(c[k]); });
+    CLIENT_KEYS.forEach(k => { if(c[k] != null) o[k] = k === 'birth' ? sDate(c[k], '') : k === 'cat' ? c[k] : sStr(c[k]); });
     o.name = o.name || 'Sin nombre'; o.cat = ['A','B','C'].includes(c.cat) ? c.cat : 'B';
     if(c.example) o.example = true;
     return o;
   });
-  const loans = d.loans.filter(l => isObj(l) && Array.isArray(l.cuotas) && l.cuotas.length).map(l => {
-    const cuotas = l.cuotas.filter(isObj).map((q, i) => ({n:i + 1, due:sDate(q.due, t), amount:sNum(q.amount), interest:sNum(q.interest), capital:sNum(q.capital),
-      payments:(Array.isArray(q.payments) ? q.payments : []).filter(isObj).map(p => ({date:sDate(p.date, t), amount:sNum(p.amount)}))}));
-    const o = {id:sId(l.id), clientId:sId(l.clientId), amount:sNum(l.amount), n:cuotas.length, rate:sNum(l.rate), first:sDate(l.first, t), created:sDate(l.created, t),
+  const loans = d.loans.filter(l => isObj(l) && Array.isArray(l.cuotas) && l.cuotas.length).slice(0, LIMITS.loans).map(l => {
+    const cuotas = l.cuotas.filter(isObj).slice(0, LIMITS.cuotas).map((q, i) => ({n:i + 1, due:sDate(q.due, t), amount:sNum(q.amount, 0, 0), interest:sNum(q.interest), capital:sNum(q.capital),
+      payments:(Array.isArray(q.payments) ? q.payments : []).filter(isObj).slice(0, LIMITS.payments).map(p => { const o = {date:sDate(p.date, t), amount:sNum(p.amount, 0, 0)}; if(p.mora === true) o.mora = true; else if(p.desc === true) o.desc = true; const g = sOptId(p.group); if(g) o.group = g; return o; })}));
+    const o = {id:sId(l.id), clientId:sId(l.clientId), amount:sNum(l.amount, 0, 0), n:cuotas.length, rate:sNum(l.rate, 0, 0, 100), first:sDate(l.first, t), created:sDate(l.created, t),
       notes:sStr(l.notes), fromCaja:!!l.fromCaja, freq:l.freq === 'semanal' ? 'semanal' : 'mensual', cuotas};
     if(l.mode === 'total') o.mode = 'total';
     if(l.example) o.example = true;
     return o;
   });
-  const caja = (Array.isArray(d.caja) ? d.caja : []).filter(isObj).map(m => ({id:sId(m.id), date:sDate(m.date, t), amount:sNum(m.amount), note:sStr(m.note, 300)}));
+  const caja = (Array.isArray(d.caja) ? d.caja : []).filter(isObj).slice(0, LIMITS.caja).map(m => ({id:sId(m.id), date:sDate(m.date, t), amount:sNum(m.amount), note:sStr(m.note, 300)}));
   const st = isObj(d.settings) ? d.settings : {}, r = isObj(st.rates) ? st.rates : {};
-  const settings = {rates:{A:sNum(r.A, 6), B:sNum(r.B, 9), C:sNum(r.C, 12)}, lockAfter:[0, 60, 300, 900].includes(st.lockAfter) ? st.lockAfter : 60};
-  const docs = Array.isArray(d.docs) ? d.docs.filter(isObj).map(x => ({id:sId(x.id), clientId:sId(x.clientId), loanId:sOptId(x.loanId), date:sDate(x.date, t), name:sStr(x.name, 200), data:sImg(x.data)})).filter(x => x.data) : null;
+  const mo = isObj(st.mora) ? st.mora : {}, clamp = (v, lo, hi, d) => { const n = Number(v); return isFinite(n) && v !== '' && v != null ? Math.min(hi, Math.max(lo, n)) : d; };
+  const settings = {rates:{A:sNum(r.A, 6, 0, 100), B:sNum(r.B, 9, 0, 100), C:sNum(r.C, 12, 0, 100)}, lockAfter:[0, 60, 300, 900].includes(st.lockAfter) ? st.lockAfter : 60,
+    mora:{rate:clamp(mo.rate, 0, 5, 0.3), grace:clamp(mo.grace, 0, 60, 3), cap:clamp(mo.cap, 0, 200, 50)}, payoffDisc:clamp(st.payoffDisc, 0, 100, 50), advanceDisc:clamp(st.advanceDisc, 0, 100, 10),
+    lenderName:sStr(st.lenderName, 100)};
+  if(sDate(st.lastBackup, '') && st.lastBackup <= t) settings.lastBackup = st.lastBackup;
+  const docs = Array.isArray(d.docs) ? d.docs.filter(isObj).slice(0, LIMITS.docs).map(x => ({id:sId(x.id), clientId:sId(x.clientId), loanId:sOptId(x.loanId), date:sDate(x.date, t), name:sStr(x.name, 200), data:sImg(x.data)})).filter(x => x.data) : null;
   return {settings, clients, loans, caja, docs};
 }
 
 function stageImport(text){
+  if(UI.locked || !S) return;
+  if(typeof text !== 'string' || text.length > 40e6){ toast('La copia es demasiado grande o no es válida.'); return; }
   let d; try { d = JSON.parse(text); } catch(e){ toast('El texto no es una copia válida.'); return; }
   if(isObj(d) && d.enc === 1 && d.salt && d.iv && d.data){
     UI.encImport = d;
@@ -1108,9 +1328,9 @@ function stageImport(text){
     return;
   }
   if(!valid(d)){ toast('El texto no es una copia válida.'); return; }
-  d = sanitize(d);
+  try { d = sanitize(d); } catch(e){ toast('El texto no es una copia válida.'); return; }
   UI.pendingImport = d;
-  $('#imp-confirm').innerHTML = `<div class="banner"><span>La copia tiene <b>${d.clients.length} clientes</b> y <b>${d.loans.length} préstamos</b>${Array.isArray(d.docs) ? ' y <b>' + d.docs.length + ' fotos de pagarés</b>' : ''}. Al restaurarla se reemplaza todo lo que hay ahora.</span><button class="btn sm primary" data-act="import-confirm">Restaurar copia</button></div>`;
+  $('#imp-confirm').innerHTML = `<div class="banner"><span>La copia tiene <b>${d.clients.length} clientes</b> y <b>${d.loans.length} préstamos</b>${Array.isArray(d.docs) ? ' y <b>' + d.docs.length + ' fotos de pagarés</b>' : ''}. ${d.clients.length ? ' Clientes: ' + d.clients.slice(0, 5).map(c => '<b>' + esc(c.name) + '</b>').join(', ') + (d.clients.length > 5 ? '…' : '') + '.' : ''} Al restaurarla se reemplaza todo lo que hay ahora.</span><button class="btn sm primary" data-act="import-confirm">Restaurar copia</button></div>`;
 }
 
 document.addEventListener('click', e => {
@@ -1131,7 +1351,32 @@ document.addEventListener('click', e => {
     case 'new-client': openSheet({type:'client', returnTo:UI.sheet && UI.sheet.type === 'new-loan' ? 'new-loan' : null}); break;
     case 'open-client': openSheet({type:'client', id}); break;
     case 'pay': openSheet({type:'pay', id, i:Number(el.dataset.i)}); break;
-    case 'undo': { const q = loan(id).cuotas[Number(el.dataset.i)]; q.payments.pop(); commit('Pago deshecho'); break; }
+    case 'undo': {
+      const l = loan(id), q = l.cuotas[Number(el.dataset.i)], last = q.payments[q.payments.length - 1];
+      if(last && last.group) l.cuotas.forEach(x => { x.payments = x.payments.filter(p => p.group !== last.group); });
+      else q.payments.pop();
+      if(UI.sheet) UI.sheet.lastGroup = null;
+      commit('Cobro deshecho'); break;
+    }
+    case 'receipt': {
+      const l = loan(id); if(!l) break;
+      let group = el.dataset.group;
+      if(!group){
+        const q = l.cuotas[Number(el.dataset.i)], cashPays = q.payments.filter(p => !p.desc), last = cashPays[cashPays.length - 1];
+        if(!last) break;
+        if(!last.group){ last.group = uid(); save(); }
+        group = last.group;
+      }
+      copyText(receiptText(l, group), 'Recibo copiado. Pegalo en WhatsApp.'); break;
+    }
+    case 'payoff': openSheet({type:'payoff', id}); break;
+    case 'advance': openSheet({type:'advance', id}); break;
+    case 'gen-bkpass': { const i = $('#bk-pass'); i.type = 'text'; i.value = newRecoveryKey().slice(0, 19); toast('Anotá esta contraseña junto a tu llave de recuperación.'); break; }
+    case 'go-backup': {
+      UI.tab = 'ajustes'; closeSheet(); render();
+      setTimeout(() => { const i = $('#bk-pass'); if(i){ i.scrollIntoView({block:'center'}); i.focus(); } }, 50);
+      break;
+    }
     case 'del-loan': S.loans = S.loans.filter(l => l.id !== id); closeSheet(); commit('Préstamo borrado'); break;
     case 'caja-add': case 'caja-sub': {
       const a = Number($('#cap-amt').value);
@@ -1141,11 +1386,12 @@ document.addEventListener('click', e => {
     }
     case 'open-caja': openSheet({type:'caja'}); break;
     case 'lock-now': lockApp(); break;
-    case 'new-rec': newRecovery(); break;
-    case 'use-recovery': useRecovery(); break;
+    case 'new-rec': once(newRecovery); break;
+    case 'use-recovery': once(useRecovery); break;
     case 'rec-done': if(!$('#rec-ack').checked){ lockErr('Marcá que ya la anotaste.'); break; } UI.showRec = null; unlockApp(); break;
     case 'forgot': $('#lock-forgot').hidden = !$('#lock-forgot').hidden; break;
     case 'forgot-wipe': {
+      if(String(($('#wipe-confirm') || {}).value || '').trim().toUpperCase() !== 'BORRAR'){ lockErr('Para borrar todo, escribí BORRAR en el casillero.'); break; }
       try { [KEY, KEYS_KEY, PIN_KEY, FAIL_KEY].forEach(k => localStorage.removeItem(k)); } catch(err){}
       DK = null; S = null; DOCS = []; DB.replace([]);
       UI.startEmpty = true; screenSetup('new'); break;
@@ -1166,7 +1412,7 @@ document.addEventListener('click', e => {
     case 'reminder': {
       const l = loan(id), st = loanStats(l), c = client(l.clientId), q = st.next, rest = q.amount - paidOf(q);
       const late = qStatus(q) === 'vencida';
-      const txt = `Hola ${c.name.split(' ')[0]}! Te recuerdo la cuota ${q.n} de ${l.n} por ${money(rest)}, ${late ? 'que venció el ' + fdate(q.due) : 'que vence el ' + fdate(q.due)}.${st.overdue > rest + .5 ? ' En total tenés ' + money(st.overdue) + ' vencido.' : ''} Gracias!`;
+      const txt = `Hola ${c.name.split(' ')[0]}! Te recuerdo la cuota ${q.n} de ${l.n} por ${money(rest)}, ${late ? 'que venció el ' + fdate(q.due) : 'que vence el ' + fdate(q.due)}.${st.overdue > rest + .5 ? ' En total tenés ' + money(st.overdue) + ' vencido.' : ''}${st.mora > 0.5 ? ' Por el atraso se suma un recargo de ' + money(st.mora) + '.' : ''} Gracias!`;
       copyText(txt, 'Recordatorio copiado. Pegalo en WhatsApp.'); break;
     }
     case 'clear-examples': {
@@ -1179,12 +1425,12 @@ document.addEventListener('click', e => {
     case 'export-file': {
       buildExport().then(data => {
         if(!data) return;
-        try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type:'application/json'})); a.download = 'libreta-prestamos-' + today() + '.json'; document.body.appendChild(a); a.click(); a.remove(); toast('Si no se descargó, usá "Copiar".'); }
+        try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type:'application/json'})); a.download = 'libreta-prestamos-' + today() + '.json'; document.body.appendChild(a); a.click(); a.remove(); S.settings.lastBackup = today(); save(); render(); toast('Copia descargada. Guardala fuera del celular.'); }
         catch(err){ toast('No se pudo descargar. Usá "Copiar".'); }
       });
       break;
     }
-    case 'export-copy': buildExport().then(data => { if(data) copyText(data, 'Copia copiada. Guardala en una nota.'); }); break;
+    case 'export-copy': buildExport().then(data => { if(data) copyText(data, 'Copia copiada. Guardala fuera del celular.', () => { S.settings.lastBackup = today(); save(); render(); }); }); break;
     case 'import-text': stageImport($('#imp-text').value); break;
     case 'import-decrypt': {
       const pass = $('#imp-pass').value, obj = UI.encImport; if(!obj) break;
@@ -1205,6 +1451,14 @@ document.addEventListener('input', e => {
   if(t.id === 'q'){ UI.q = t.value; const pos = t.selectionStart; render(); const n = $('#q'); n.focus(); try { n.setSelectionRange(pos, pos); } catch(err){} return; }
   if(t.dataset.rate){ const v = Number(t.value); if(v >= 0 && v <= 100 && t.value !== ''){ S.settings.rates[t.dataset.rate] = v; save(); $('#tea-' + t.dataset.rate).textContent = 'Equivale a ' + pct(Math.round(tea(v))) + ' anual (TEA)'; } return; }
   if(t.closest('form[data-form="loan"]')) updatePreview();
+  if(t.closest('form[data-form="payoff"]')) updatePayoff();
+  if(t.closest('form[data-form="advance"]')) updateAdvance();
+  if(t.dataset.set){
+    const [a, b] = t.dataset.set.split('.'), v = t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.value.slice(0, 100);
+    if(t.type === 'number' && t.value !== '' && !(v >= 0 && v <= Number(t.max || 1e9))) return;
+    if(b){ S.settings[a] = Object.assign({}, S.settings[a]); S.settings[a][b] = v; } else S.settings[a] = v;
+    save();
+  }
 });
 document.addEventListener('change', e => {
   const t = e.target;
@@ -1223,6 +1477,9 @@ document.addEventListener('change', e => {
     f.first.value = fq === 'semanal' ? addDays(today(), 7) : addMonths(today(), 1);
     updatePreview();
   }
+  if(t.id === 'py-mora'){ const amt = $('#py-amount'); amt.value = r2(Number(t.dataset.rest) + (t.checked ? Number(t.dataset.mora) : 0)); }
+  if(t.id === 'po-mora') updatePayoff();
+  if(t.id === 'ad-mora') updateAdvance();
   if(t.id === 'lock-after'){ S.settings.lockAfter = Number(t.value); save(); toast('Guardado'); }
   if(t.id === 'doc-relink'){ const d = DOCS.find(x => x.id === t.dataset.id); d.loanId = t.value || null; DB.put(d); toast('Guardado'); }
   if(t.id === 'doc-file' && t.files.length){
@@ -1231,22 +1488,26 @@ document.addEventListener('change', e => {
     (async () => {
       let ok = 0;
       for(const f of files){
-        try { const data = await compressImage(f); const d = {id:uid(), clientId, loanId, date:today(), name:f.name, data}; DOCS.push(d); await DB.put(d); ok++; }
+        if(!/^image\/(jpeg|png|webp|heic|heif|gif|bmp)$/i.test(f.type) || !(f.size > 0 && f.size < 25e6)) continue;
+        if(UI.locked) break;
+        try { const data = await compressImage(f); if(UI.locked) break; const d = {id:uid(), clientId, loanId, date:today(), name:f.name, data}; await DB.put(d); if(UI.locked) break; DOCS.push(d); ok++; }
         catch(err){}
       }
+      if(UI.locked) return;
       if(UI.sheet && UI.sheet.type === 'client' && UI.sheet.id === clientId){ UI.sheet.loanId = loanId; }
       render();
-      toast(ok === files.length ? (ok === 1 ? 'Pagaré guardado' : ok + ' pagarés guardados') : 'Algunas fotos no se pudieron leer. Probá con JPG o PNG.');
+      toast(ok === files.length ? (ok === 1 ? 'Pagaré guardado' : ok + ' pagarés guardados') : 'Algunas fotos no se cargaron: tienen que ser JPG, PNG o WEBP de menos de 25 MB.');
     })();
   }
+  if(t.id === 'imp-file' && t.files[0] && t.files[0].size > 40e6){ toast('El archivo es demasiado grande para ser una copia de la Libreta.'); t.value = ''; return; }
   if(t.id === 'imp-file' && t.files[0]){ const rd = new FileReader(); rd.onload = () => stageImport(String(rd.result)); rd.readAsText(t.files[0]); }
 });
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
-  if(f.dataset.form === 'unlock'){ tryUnlock(f); return; }
-  if(f.dataset.form === 'setup'){ createPin(f); return; }
-  if(f.dataset.form === 'newpin'){ resetPin(f); return; }
-  if(f.dataset.form === 'pin'){ pinForm(f); return; }
+  if(f.dataset.form === 'unlock'){ once(() => tryUnlock(f)); return; }
+  if(f.dataset.form === 'setup'){ once(() => createPin(f)); return; }
+  if(f.dataset.form === 'newpin'){ once(() => resetPin(f)); return; }
+  if(f.dataset.form === 'pin'){ once(() => pinForm(f)); return; }
   const err = (id, msg) => { const p = $(id); p.textContent = msg; p.hidden = false; };
   if(f.dataset.form === 'loan'){
     const a = Number(f.amount.value), n = parseInt(f.n.value, 10), r = Number(f.rate.value);
@@ -1281,16 +1542,33 @@ document.addEventListener('submit', e => {
     const a = Number(f.amount.value);
     if(!(a > 0)) return err('#py-err', 'Poné el monto que cobraste.');
     if(!f.date.value) return err('#py-err', 'Elegí la fecha del cobro.');
-    const s = UI.sheet, l = loan(s.id), left = applyPayment(l, s.i, a, f.date.value);
-    save(); UI.sheet = {type:'loan', id:l.id}; render();
-    toast(left > 0.5 ? 'Cobro registrado. Sobraron ' + money(left) + ' (el préstamo ya está pago).' : 'Cobro registrado');
+    const s = UI.sheet, l = loan(s.id), res = applyPayment(l, s.i, a, f.date.value, !!(f.mora && f.mora.checked));
+    save(); UI.sheet = {type:'loan', id:l.id, lastGroup:res.group}; render();
+    toast(res.left > 0.5 ? 'Cobro registrado. Sobraron ' + money(res.left) + ' (el préstamo ya está pago).' : 'Cobro registrado');
+  }
+  if(f.dataset.form === 'advance'){
+    const l = loan(f.dataset.id); if(!l) return;
+    const k = Number(f.k.value), p = Number(f.pct.value), max = l.cuotas.filter(q => paidOf(q) < q.amount - 0.5).length;
+    if(!(k >= 1 && k <= max && Math.round(k) === k)) return err('#ad-err', 'La cantidad de cuotas tiene que ser entre 1 y ' + max + '.');
+    if(!(p >= 0 && p <= 100)) return err('#ad-err', 'El descuento tiene que ser entre 0 y 100%.');
+    if(!f.date.value) return err('#ad-err', 'Elegí la fecha del pago.');
+    const group = applyAdvance(l, k, p, f.date.value, f.mora.checked);
+    save(); UI.sheet = {type:'loan', id:l.id, lastGroup:group}; render(); toast(k === 1 ? 'Cuota adelantada' : k + ' cuotas adelantadas');
+  }
+  if(f.dataset.form === 'payoff'){
+    const l = loan(f.dataset.id); if(!l) return;
+    const p = Number(f.pct.value);
+    if(!(p >= 0 && p <= 100)) return err('#po-err', 'El descuento tiene que ser entre 0 y 100%.');
+    if(!f.date.value) return err('#po-err', 'Elegí la fecha del pago.');
+    const group = applyPayoff(l, p, f.date.value, f.mora.checked);
+    save(); UI.sheet = {type:'loan', id:l.id, lastGroup:group}; render(); toast('Préstamo cancelado');
   }
 });
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && UI.sheet) closeSheet(); });
 
 document.addEventListener('visibilitychange', () => {
-  if(!getKeys() || UI.locked || !S) return;
-  const after = S.settings.lockAfter ?? 60;
+  if(!getKeys() || (UI.locked && !UI.sensitive) || (!S && !UI.pendingRaw)) return;
+  const after = UI.sensitive ? Math.min(60, S ? (S.settings.lockAfter ?? 60) : 60) : (S.settings.lockAfter ?? 60);
   if(document.hidden){ UI.hiddenAt = Date.now(); if(after === 0) lockApp(); }
   else if(UI.hiddenAt && Date.now() - UI.hiddenAt >= after * 1000) lockApp();
 });
@@ -1298,7 +1576,9 @@ document.addEventListener('visibilitychange', () => {
 (async () => {
   if(!CAN_ENCRYPT){
     const blob = rawLoad();
-    S = normalize(valid(blob) ? blob : seed()); save();
+    if(blob && blob.enc){ showLock('<div class="lock-box"><h1>Libreta</h1><p class="note">Este navegador no puede abrir los datos cifrados. Abrí la app desde https://lsacril.github.io/libreta</p></div>'); return; }
+    const c0 = sanitize(valid(blob) ? blob : seed());
+    S = normalize({settings:c0.settings, clients:c0.clients, loans:c0.loans, caja:c0.caja}); save();
     DOCS = await DB.all();
     unlockApp();
     return;
