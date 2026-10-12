@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="es">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="no-referrer">
+<script>if (window.top !== window.self) { document.documentElement.innerHTML = ""; throw new Error("frame"); }</script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1D4F91">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Libreta de Préstamos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: libreta de tinta azul sobre papel frío; header con pestañas (abajo en celular), tarjetas solo para préstamos y hojas emergentes */
+:root{
+  --bg:#ECEFF3; --paper:#FFFFFF; --ink:#13202B; --muted:#5A6A78; --line:#D3DBE3; --rule:#E3E9EF;
+  --accent:#1D4F91; --accent-soft:#DDE7F5; --on-accent:#FFFFFF;
+  --ok:#23704A; --ok-soft:#DCEFE3; --warn:#9A6212; --warn-soft:#F6EAD3; --bad:#B23A26; --bad-soft:#F7E0DB;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Public Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-num:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E151B; --paper:#16202A; --ink:#E5ECF2; --muted:#93A3B1; --line:#2A3846; --rule:#1E2A35;
+  --accent:#86B4F2; --accent-soft:#1D3150; --on-accent:#0B1622;
+  --ok:#6CCB97; --ok-soft:#173528; --warn:#E3B062; --warn-soft:#3A2C14; --bad:#F08A76; --bad-soft:#3E1F19;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E151B; --paper:#16202A; --ink:#E5ECF2; --muted:#93A3B1; --line:#2A3846; --rule:#1E2A35;
+  --accent:#86B4F2; --accent-soft:#1D3150; --on-accent:#0B1622;
+  --ok:#6CCB97; --ok-soft:#173528; --warn:#E3B062; --warn-soft:#3A2C14; --bad:#F08A76; --bad-soft:#3E1F19;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{padding-top:env(safe-area-inset-top,0px)}
+body{margin:0}
+img{max-width:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.app{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:0 110px}
+
+/* Header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:18px 14px;border-bottom:2px solid var(--ink);position:relative}
+.top::after{content:"";position:absolute;left:0;right:0;bottom:-6px;border-bottom:1px solid var(--ink);opacity:.5}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0}
+.brand h1{font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:-.02em;margin:0;line-height:1}
+.brand small{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.tabs{display:flex;gap:4px}
+.tabs button{border:0;background:none;padding:8px 12px;border-radius:999px;color:var(--muted);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
+.tabs button svg{width:18px;height:18px}
+.tabs button[aria-current="page"]{background:var(--ink);color:var(--bg)}
+.tabs button:focus-visible,.btn:focus-visible,.chip:focus-visible,.card:focus-visible,.row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:760px){
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--paper);border-top:1px solid var(--line);justify-content:space-around;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px))}
+  .tabs button{flex-direction:column;gap:2px;font-size:11.5px;padding:6px 10px;border-radius:10px;flex:1}
+  .tabs button[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+  .brand small{display:none}
+}
+
+/* Banners */
+.banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px;margin-top:16px;padding:10px 14px;border:1px dashed var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:var(--r);font-size:14px}
+.banner b{color:var(--warn)}
+
+/* Sections */
+.view{display:flex;flex-direction:column;gap:22px;padding-top:20px}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h2{font-family:var(--f-display);font-weight:600;font-size:20px;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:700}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.stat{background:var(--paper);padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.stat .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+.stat .val{font-family:var(--f-num);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.stat .sub{font-size:12.5px;color:var(--muted)}
+.stat.bad .val{color:var(--bad)}
+@media (max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat .val{font-size:19px}}
+
+/* Ledger list */
+.ledger{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:12px 16px;border-top:1px solid var(--rule);cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0;width:100%;text-align:left}
+.row:first-child{border-top:0}
+.row:hover{background:var(--accent-soft)}
+.row .t{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.row .d{font-size:13px;color:var(--muted);grid-column:1}
+.row .a{text-align:right;grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.empty{padding:22px 16px;color:var(--muted);text-align:center;font-size:14px}
+
+/* Pills & chips */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.done{background:var(--rule);color:var(--muted)}
+.cat{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:7px;font-weight:800;font-size:13px;font-family:var(--f-display);border:1.5px solid currentColor;flex:none}
+.cat.A{color:var(--ok)} .cat.B{color:var(--warn)} .cat.C{color:var(--bad)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--paper);padding:6px 12px;border-radius:999px;font-weight:600;font-size:13.5px;cursor:pointer;color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.chip .n{font-family:var(--f-num);font-size:12px;opacity:.75;margin-left:4px}
+
+/* Buttons & inputs */
+.btn{border:1px solid var(--line);background:var(--paper);padding:9px 14px;border-radius:10px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.danger{color:var(--bad);border-color:var(--bad-soft)}
+.btn.danger[data-armed]{background:var(--bad);color:var(--paper);border-color:var(--bad)}
+.btn.sm{padding:5px 10px;font-size:13px;border-radius:8px}
+.btn.link{border:0;background:none;padding:4px 6px;color:var(--accent)}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.search{flex:1;min-width:0}
+input[type=text],input[type=search],input[type=number],input[type=date],input[type=tel],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+textarea{min-height:80px;resize:vertical}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:13px;font-weight:600;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:480px){.grid2{grid-template-columns:minmax(0,1fr)}}
+form{display:flex;flex-direction:column;gap:14px}
+
+/* Loan cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;text-align:left;width:100%}
+.card:hover{border-color:var(--muted)}
+.card .hd{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.card .who{display:flex;align-items:center;gap:8px;min-width:0;font-weight:700}
+.card .who span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .fig{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card .fig .big{font-family:var(--f-num);font-weight:700;font-size:19px}
+.bar{height:6px;background:var(--rule);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.card .ft{display:flex;flex-wrap:wrap;justify-content:space-between;font-size:13px;color:var(--muted);gap:2px 8px}
+
+/* Sheet */
+.sheet-wrap{position:fixed;inset:0;z-index:50;background:rgba(8,14,20,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.sheet{background:var(--bg);width:100%;max-width:620px;max-height:calc(100% - 24px);overflow:auto;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.sheet-hd{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.sheet-hd h2{font-size:19px;min-width:0;overflow-wrap:anywhere}
+.sheet-bd{padding:18px;display:flex;flex-direction:column;gap:18px}
+.x{border:0;background:var(--paper);width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:20px;line-height:1;flex:none;border:1px solid var(--line)}
+@media (max-width:760px){
+  .sheet-wrap{align-items:flex-end;padding:0}
+  .sheet{max-width:none;border-radius:18px 18px 0 0;max-height:94%;padding-bottom:env(safe-area-inset-bottom,0px)}
+}
+@media (prefers-reduced-motion:no-preference){
+  .sheet{animation:up .22s ease-out}
+  @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+}
+
+/* Facts & schedule */
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.facts div{background:var(--paper);padding:10px 12px;min-width:0}
+.facts dt{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+.facts dd{margin:2px 0 0;font-family:var(--f-num);font-weight:700;font-size:16px;overflow-wrap:anywhere}
+@media (max-width:480px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.preview{background:var(--accent-soft);border-radius:var(--r);padding:12px 14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px}
+.preview div{display:flex;flex-direction:column;min-width:0}
+.preview span{font-size:12px;color:var(--muted);font-weight:600}
+.preview b{font-family:var(--f-num);font-size:17px;overflow-wrap:anywhere}
+.tbl-wrap{overflow-x:auto;background:var(--paper);border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;min-width:480px;font-size:14px}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-weight:700}
+td{padding:9px 10px;border-top:1px solid var(--rule);vertical-align:middle}
+td.r,th.r{text-align:right}
+tr.is-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+.acts{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap}
+.note{font-size:13px;color:var(--muted);line-height:1.5;max-width:65ch}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px}
+.rates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:480px){.rates{grid-template-columns:minmax(0,1fr)}}
+.rate-tea{font-size:12.5px;color:var(--muted)}
+
+/* Capital */
+.capital{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:var(--r);padding:16px 18px 12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:12px 22px;align-items:start}
+.cap-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cap-main .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.cap-val{font-family:var(--f-num);font-variant-numeric:tabular-nums;font-size:34px;font-weight:700;line-height:1.15;overflow-wrap:anywhere}
+.cap-val.neg{color:var(--bad)}
+.cap-main .sub{font-size:13px;color:var(--muted)}
+.cap-form{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.cap-form input{flex:1 1 130px;min-width:0}
+.cap-form .btns{display:flex;gap:8px;flex:1 1 100%}
+.cap-form .btns .btn{flex:1}
+.cap-foot{grid-column:1 / -1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;border-top:1px dashed var(--line);padding-top:10px}
+.cap-proj{margin-left:auto;text-align:right;font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:1px}
+.cap-proj b{font-family:var(--f-num);font-size:16px;color:var(--ok)}
+.ex-wrap{display:flex;flex-direction:column;gap:10px}
+.ex-wrap .banner{margin-top:0}
+.fs{border:1px solid var(--line);border-radius:var(--r);background:var(--paper);padding:12px 14px 14px;margin:0;min-width:0}
+.fs legend{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:0 6px}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.check{display:flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}
+.check input{width:18px;height:18px;accent-color:var(--accent)}
+@media (max-width:640px){.capital{grid-template-columns:minmax(0,1fr)}.cap-val{font-size:30px}}
+
+/* Pagarés */
+.seg{display:flex;gap:4px;background:var(--rule);padding:4px;border-radius:11px}
+.seg button{flex:1;border:0;background:none;padding:8px 10px;border-radius:8px;font-weight:600;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.seg button[aria-selected="true"]{background:var(--paper);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.seg .num{font-size:12px;background:var(--accent-soft);color:var(--accent);padding:0 7px;border-radius:99px}
+.docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.doc{border:1px solid var(--line);background:var(--paper);border-radius:10px;overflow:hidden;padding:0;cursor:pointer;display:flex;flex-direction:column;text-align:left}
+.doc:hover{border-color:var(--muted)}
+.doc img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:var(--rule)}
+.doc span{padding:7px 9px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:1px;min-width:0}
+.doc b{color:var(--ink);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-full{width:100%;max-width:100%;border-radius:10px;border:1px solid var(--line);background:var(--paper)}
+
+/* Bloqueo con PIN */
+.lock{position:fixed;inset:0;z-index:80;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0px))}
+.lock-box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:16px;text-align:center}
+.lock-box h1{font-family:var(--f-display);font-weight:800;font-size:34px;letter-spacing:-.02em;margin:0;padding-bottom:10px;border-bottom:2px solid var(--ink)}
+.lock-box input{text-align:center;font-family:var(--f-num);font-size:28px;letter-spacing:.4em;padding:12px}
+.lock-box .btn{width:100%;padding:12px}
+.lock-err{color:var(--bad);font-size:14px;min-height:1.4em;margin:0}
+.lock-forgot{display:flex;flex-direction:column;gap:10px;text-align:left}
+
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 8px 30px rgba(0,0,0,.25)}
+@media (min-width:761px){#toast{bottom:24px}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><h1>Libreta</h1><small id="hoy"></small><button type="button" id="lockBtn" class="btn sm" data-act="lock-now" hidden title="Bloquear la app" style="align-self:center"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Bloquear</button></div>
+    <nav class="tabs" aria-label="Secciones">
+      <button type="button" data-tab="resumen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Resumen</button>
+      <button type="button" data-tab="prestamos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Préstamos</button>
+      <button type="button" data-tab="clientes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.9.7 3.1 2.5 3.5 5.2"/></svg>Clientes</button>
+      <button type="button" data-tab="ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Ajustes</button>
+    </nav>
+  </header>
+  <div id="banner"></div>
+  <main id="view" class="view"></main>
+</div>
+<div id="sheet" class="sheet-wrap" hidden><div class="sheet" role="dialog" aria-modal="true" id="sheetBox"></div></div>
+<div id="lock" class="lock" hidden>
+  <form class="lock-box" data-form="unlock" novalidate>
+    <h1>Libreta</h1>
+    <label for="lock-pin" class="muted">Ingresá tu PIN</label>
+    <input id="lock-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" aria-label="PIN">
+    <p class="lock-err" id="lock-err" role="alert"></p>
+    <button class="btn primary" type="submit">Entrar</button>
+    <button class="btn link" type="button" data-act="forgot">Olvidé mi PIN</button>
+    <div class="lock-forgot" id="lock-forgot" hidden>
+      <p class="note">El PIN no se puede recuperar. La única forma de volver a entrar es borrar todos los datos de la app en este dispositivo. Si tenés una copia de seguridad, después la podés restaurar.</p>
+      <button class="btn danger" type="button" data-act="forgot-wipe" data-confirm="Tocá de nuevo: se borra todo">Borrar todo y empezar de nuevo</button>
+    </div>
+  </form>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+'use strict';
+const KEY = 'libreta-prestamos-v1';
+let storageOK = true;
+
+/* ---------- utilidades ---------- */
+const $ = s => document.querySelector(s);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const r2 = v => Math.round(v * 100) / 100;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf = new Intl.NumberFormat('es-AR', {style:'currency', currency:'ARS', maximumFractionDigits:0, minimumFractionDigits:0});
+const money = v => nf.format(Math.round(v || 0));
+const pct = v => (Number(v) || 0).toLocaleString('es-AR', {maximumFractionDigits:2}) + '%';
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function pad(n){ return String(n).padStart(2,'0'); }
+function today(){ const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function addMonths(iso, k){
+  const [y,m,d] = iso.split('-').map(Number);
+  const t = new Date(y, m - 1 + k, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  return t.getFullYear() + '-' + pad(t.getMonth()+1) + '-' + pad(Math.min(d, last));
+}
+function addDays(iso, k){
+  const [y,m,d] = iso.split('-').map(Number);
+  const t = new Date(y, m-1, d + k);
+  return t.getFullYear() + '-' + pad(t.getMonth()+1) + '-' + pad(t.getDate());
+}
+function daysBetween(a, b){
+  const [y1,m1,d1] = a.split('-').map(Number), [y2,m2,d2] = b.split('-').map(Number);
+  return Math.round((Date.UTC(y2,m2-1,d2) - Date.UTC(y1,m1-1,d1)) / 864e5);
+}
+function fdate(iso){ if(!iso) return ''; const [y,m,d] = iso.split('-'); return Number(d) + ' ' + MESES[Number(m)-1] + ' ' + y; }
+const tea = monthly => (Math.pow(1 + monthly/100, 12) - 1) * 100;
+const PER = {
+  mensual:{year:12, word:'mensual', plural:'mensuales', cuota:'Cuota mensual'},
+  semanal:{year:52, word:'semanal', plural:'semanales', cuota:'Cuota semanal'}
+};
+const freqOf = l => l && l.freq === 'semanal' ? 'semanal' : 'mensual';
+const teaP = (rate, freq) => (Math.pow(1 + rate/100, PER[freq].year) - 1) * 100;
+const weeklyFromMonthly = m => r2((Math.pow(1 + m/100, 12/52) - 1) * 100);
+const monthlyFromWeekly = w => (Math.pow(1 + w/100, 52/12) - 1) * 100;
+
+/* ---------- cálculo (sistema francés) ---------- */
+function buildSchedule(amount, n, ratePct, firstDue, freq){
+  const dueAt = k => freq === 'semanal' ? addDays(firstDue, 7 * k) : addMonths(firstDue, k);
+  const i = ratePct / 100;
+  const c = r2(i === 0 ? amount / n : amount * i / (1 - Math.pow(1 + i, -n)));
+  let bal = amount; const out = [];
+  for(let k = 0; k < n; k++){
+    const interest = r2(bal * i);
+    let capital = r2(c - interest), amt = c;
+    if(k === n - 1){ capital = r2(bal); amt = r2(capital + interest); }
+    bal = r2(bal - capital);
+    out.push({n:k+1, due:dueAt(k), amount:amt, interest, capital, payments:[]});
+  }
+  return out;
+}
+/* Modo "elijo cuánto me devuelve": cuotas iguales = total / n, y se calcula la tasa equivalente */
+function impliedRate(amount, n, c){
+  if(c * n <= amount + 0.005) return 0;
+  let lo = 0, hi = 10;
+  for(let k = 0; k < 100; k++){ const mid = (lo + hi) / 2, pv = c * (1 - Math.pow(1 + mid, -n)) / mid; if(pv > amount) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+function scheduleByTotal(amount, n, total, firstDue, freq){
+  const c = r2(total / n), i = impliedRate(amount, n, total / n);
+  let bal = amount; const out = [];
+  for(let k = 0; k < n; k++){
+    const last = k === n - 1, amt = last ? r2(total - c * (n - 1)) : c;
+    const interest = last ? r2(amt - bal) : r2(bal * i), capital = r2(amt - interest);
+    bal = r2(bal - capital);
+    out.push({n:k+1, due:freq === 'semanal' ? addDays(firstDue, 7 * k) : addMonths(firstDue, k), amount:amt, interest, capital, payments:[]});
+  }
+  return {cuotas:out, rate:r2(i * 100)};
+}
+const paidOf = q =>r2(q.payments.reduce((s,p) => s + p.amount, 0));
+function qStatus(q){
+  const p = paidOf(q);
+  if(p >= q.amount - 0.5) return 'pagada';
+  if(q.due < today()) return 'vencida';
+  if(p > 0) return 'parcial';
+  return 'pendiente';
+}
+function loanStats(l){
+  let total = 0, paid = 0, overdue = 0, paidCount = 0, interest = 0, next = null, oldestLate = null;
+  l.cuotas.forEach(q => {
+    const p = paidOf(q), st = qStatus(q);
+    total += q.amount; paid += p; interest += q.interest;
+    if(st === 'pagada') paidCount++;
+    else { if(!next) next = q; if(st === 'vencida'){ overdue += q.amount - p; if(!oldestLate) oldestLate = q; } }
+  });
+  const owed = r2(total - paid);
+  const status = owed <= 0.5 ? 'terminado' : overdue > 0.5 ? 'atrasado' : 'al-dia';
+  return {total:r2(total), paid:r2(paid), owed:Math.max(0, owed), overdue:r2(overdue), paidCount, interest:r2(interest), next, oldestLate, status, cuota:l.cuotas[0] ? l.cuotas[0].amount : 0};
+}
+const STATUS = {
+  'al-dia':['ok','Al día'], 'atrasado':['bad','Atrasado'], 'terminado':['done','Terminado'],
+  'pagada':['ok','Pagada'], 'vencida':['bad','Vencida'], 'parcial':['warn','Pago parcial'], 'pendiente':['done','Pendiente']
+};
+const pill = s => `<span class="pill ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
+
+/* ---------- datos ---------- */
+function defaults(){ return {settings:{rates:{A:6, B:9, C:12}}, clients:[], loans:[], caja:[]}; }
+function seed(){
+  const s = defaults(), t = today();
+  const c1 = {id:uid(), name:'Marta Giménez', phone:'11 5555-0101', cat:'A', notes:'Paga siempre por transferencia.', example:true};
+  const c2 = {id:uid(), name:'Diego Rodríguez', phone:'11 5555-0102', cat:'B', notes:'', example:true};
+  const c3 = {id:uid(), name:'Lucía Fernández', phone:'351 555-0103', cat:'C', notes:'Cliente nueva.', example:true};
+  s.clients.push(c1, c2, c3);
+  const mk = (c, amount, n, rate, first) => ({id:uid(), clientId:c.id, amount, n, rate, first, created:t, notes:'', example:true, cuotas:buildSchedule(amount, n, rate, first)});
+  const l1 = mk(c1, 300000, 6, 6, addDays(addMonths(t,-3), 5));
+  l1.cuotas.slice(0,3).forEach(q => q.payments.push({date:q.due, amount:q.amount}));
+  const l2 = mk(c2, 150000, 4, 9, addDays(addMonths(t,-2), -3));
+  l2.cuotas[0].payments.push({date:l2.cuotas[0].due, amount:l2.cuotas[0].amount});
+  l2.cuotas[1].payments.push({date:addDays(l2.cuotas[1].due, 2), amount:20000});
+  const l3 = mk(c3, 80000, 3, 12, addDays(t, 12));
+  s.loans.push(l1, l2, l3);
+  return s;
+}
+function load(){
+  try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; }
+  catch(e){ storageOK = false; return null; }
+}
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; }
+  catch(e){ storageOK = false; }
+}
+function valid(d){ return d && typeof d === 'object' && Array.isArray(d.clients) && Array.isArray(d.loans); }
+let S = load();
+if(!valid(S)){ S = seed(); save(); }
+S.settings = S.settings || defaults().settings;
+S.settings.rates = Object.assign({A:6,B:9,C:12}, S.settings.rates);
+S.caja = Array.isArray(S.caja) ? S.caja : [];
+
+/* Capital: lo que cargás a mano, menos lo que prestaste "de tu capital", más lo que cobraste de esos préstamos */
+function capitalNow(){
+  let v = S.caja.reduce((s,m) => s + m.amount, 0);
+  S.loans.forEach(l => { if(l.fromCaja){ v -= l.amount; l.cuotas.forEach(q => v += paidOf(q)); } });
+  return r2(v);
+}
+function capitalHtml(){
+  const cap = capitalNow(), owed = r2(S.loans.reduce((s,l) => s + loanStats(l).owed, 0));
+  return `<section class="capital" aria-label="Mi capital">
+    <div class="cap-main"><span class="lbl">Mi capital</span><span class="cap-val ${cap < 0 ? 'neg' : ''}">${money(cap)}</span><span class="sub">${cap < 0 ? 'Prestaste más de lo que cargaste. Sumá tu capital.' : 'plata disponible para prestar'}</span></div>
+    <div class="cap-form">
+      <input id="cap-amt" type="number" min="1" step="1" inputmode="numeric" placeholder="Monto $" aria-label="Monto">
+      <input id="cap-note" type="text" placeholder="Detalle (opcional)" aria-label="Detalle">
+      <div class="btns"><button type="button" class="btn primary" data-act="caja-add">+ Sumar</button><button type="button" class="btn" data-act="caja-sub">− Restar</button></div>
+    </div>
+    <div class="cap-foot"><button type="button" class="btn sm link" data-act="open-caja">Ver movimientos</button>
+      <div class="cap-proj"><span>Cuando termines de cobrar lo activo vas a tener</span><b>${money(cap + owed)}</b><span>${money(cap)} de capital + ${money(owed)} por cobrar</span></div></div>
+  </section>`;
+}
+
+const UI ={tab:'resumen', filter:'activos', q:'', sheet:null, pendingImport:null};
+try { const t = localStorage.getItem(KEY + ':tab'); if(t) UI.tab = t; } catch(e){}
+/* ---------- PIN ---------- */
+const PIN_KEY = KEY + ':pin';
+function getPin(){ try { return JSON.parse(localStorage.getItem(PIN_KEY)); } catch(e){ return null; } }
+async function hashPin(pin, salt){
+  const txt = salt + ':' + pin;
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch(e){
+    let h = 2166136261; for(let k = 0; k < 5000; k++){ for(let j = 0; j < txt.length; j++){ h ^= txt.charCodeAt(j); h = Math.imul(h, 16777619) >>> 0; } }
+    return 'f' + h.toString(16);
+  }
+}
+async function setPin(pin){
+  const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const data = {salt, hash:await hashPin(pin, salt)};
+  try { localStorage.setItem(PIN_KEY, JSON.stringify(data)); return true; } catch(e){ return false; }
+}
+async function checkPin(pin){ const p = getPin(); return !!p && (await hashPin(pin, p.salt)) === p.hash; }
+const validPin = p => /^\d{6,8}$/.test(p) && !/^(\d)\1+$/.test(p) && !'0123456789'.includes(p) && !'9876543210'.includes(p);
+UI.locked = !!getPin(); UI.fails = 0; UI.blockedUntil = 0; UI.hiddenAt = 0;
+function lockApp(){
+  if(!getPin()) return;
+  UI.locked = true; closeSheet();
+  $('#view').innerHTML = ''; $('#banner').innerHTML = '';
+  document.querySelector('.app').hidden = true;
+  $('#lock').hidden = false; $('#lock-forgot').hidden = true; $('#lock-err').textContent = '';
+  const i = $('#lock-pin'); i.value = ''; setTimeout(() => i.focus(), 30);
+}
+function unlockApp(){
+  UI.locked = false; UI.fails = 0;
+  $('#lock').hidden = true; document.querySelector('.app').hidden = false;
+  render();
+}
+/* Intentos fallidos guardados: recargar la página no reinicia la espera, y cada 5 fallos la espera se duplica (hasta 1 hora) */
+const FAIL_KEY = KEY + ':pinfails';
+function failState(){ try { const s = JSON.parse(localStorage.getItem(FAIL_KEY)); return s && typeof s.n === 'number' ? s : {n:0, until:0}; } catch(e){ return {n:0, until:0}; } }
+function setFail(s){ try { localStorage.setItem(FAIL_KEY, JSON.stringify(s)); } catch(e){} }
+const waitText = ms => { const s = Math.ceil(ms / 1000); return s >= 120 ? Math.ceil(s / 60) + ' minutos' : s + ' segundos'; };
+async function tryUnlock(f){
+  const errEl = $('#lock-err'), pin = f.pin.value.trim(), fs = failState();
+  if(Date.now() < fs.until){ errEl.textContent = 'Demasiados intentos. Esperá ' + waitText(fs.until - Date.now()) + '.'; f.pin.value = ''; return; }
+  if(!pin){ errEl.textContent = 'Ingresá tu PIN.'; return; }
+  if(await checkPin(pin)){ setFail({n:0, until:0}); unlockApp(); return; }
+  fs.n++; f.pin.value = '';
+  if(fs.n % 5 === 0){
+    const ms = Math.min(3600000, 30000 * Math.pow(2, fs.n / 5 - 1));
+    fs.until = Date.now() + ms;
+    errEl.textContent = 'PIN incorrecto. Esperá ' + waitText(ms) + ' para volver a probar.';
+  } else errEl.textContent = 'PIN incorrecto. Te quedan ' + (5 - fs.n % 5) + ' intentos antes de tener que esperar.';
+  setFail(fs);
+}
+async function pinForm(f){
+  const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
+  const has = !!getPin(), nw = f.newpin.value.trim(), rep = f.reppin.value.trim();
+  if(has && !(await checkPin(f.curpin.value.trim()))) return err('El PIN actual no es correcto.');
+  if(!validPin(nw)) return err('El PIN nuevo tiene que tener de 6 a 8 números y no puede ser fácil de adivinar (como 111111 o 123456).');
+  if(nw !== rep) return err('Los dos PIN nuevos no coinciden.');
+  if(!(await setPin(nw))) return err('No se pudo guardar el PIN en este navegador.');
+  render(); toast(has ? 'PIN cambiado' : 'PIN activado. Se va a pedir al abrir la app.');
+}
+async function removePin(){
+  const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
+  if(!(await checkPin($('#pin-cur').value.trim()))) return err('Para quitar el PIN, escribí el PIN actual.');
+  try { localStorage.removeItem(PIN_KEY); } catch(e){}
+  render(); toast('PIN quitado');
+}
+
+UI.calcMode = 'total';
+try { const m = localStorage.getItem(KEY + ':calc'); if(m === 'tasa') UI.calcMode = 'tasa'; } catch(e){}
+const client = id => S.clients.find(c => c.id === id) || {name:'(cliente borrado)', cat:'B'};
+const loan = id => S.loans.find(l => l.id === id);
+const catBadge = c => `<span class="cat ${esc(c)}" title="Categoría ${esc(c)}">${esc(c)}</span>`;
+
+/* ---------- fotos de pagarés (IndexedDB, porque son pesadas para localStorage) ---------- */
+let DOCS = [];
+const DB = (() => {
+  let dbp = null; const mem = new Map();
+  const api = {ok:true};
+  function open(){
+    if(!dbp) dbp = new Promise((res, rej) => {
+      try { const r = indexedDB.open('libreta-prestamos-docs', 1); r.onupgradeneeded = () => r.result.createObjectStore('docs', {keyPath:'id'}); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
+      catch(e){ rej(e); }
+    });
+    return dbp;
+  }
+  async function tx(mode, fn){
+    const db = await open();
+    return new Promise((res, rej) => { const t = db.transaction('docs', mode); const req = fn(t.objectStore('docs')); t.oncomplete = () => res(req ? req.result : undefined); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+  }
+  api.all = async () => { try { return (await tx('readonly', s => s.getAll())) || []; } catch(e){ api.ok = false; return [...mem.values()]; } };
+  api.put = async d => { try { await tx('readwrite', s => s.put(d)); } catch(e){ api.ok = false; mem.set(d.id, d); render(); } };
+  api.del = async id => { mem.delete(id); try { await tx('readwrite', s => s.delete(id)); } catch(e){} };
+  api.replace = async list => { mem.clear(); try { await tx('readwrite', s => { s.clear(); list.forEach(d => s.put(d)); }); } catch(e){ api.ok = false; list.forEach(d => mem.set(d.id, d)); render(); } };
+  return api;
+})();
+function compressImage(file){
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const max = 1600, k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url); res(cv.toDataURL('image/jpeg', 0.75));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('imagen')); };
+    img.src = url;
+  });
+}
+const docsOf = clientId => DOCS.filter(d => d.clientId === clientId);
+const defaultRate = (cat, freq) => { const m = S.settings.rates[cat] ?? 6; return freq === 'semanal' ? weeklyFromMonthly(m) : m; };
+
+/* ---------- ficha del cliente ---------- */
+const CLIENT_SECTIONS = [
+  ['Datos personales', [
+    ['name','Nombre y apellido','text',{full:true, req:true}],
+    ['dni','DNI','text',{im:'numeric', ph:'30.123.456'}],
+    ['cuil','CUIL / CUIT','text',{im:'numeric', ph:'20-30123456-7'}],
+    ['birth','Fecha de nacimiento','date',{}],
+    ['nationality','Nacionalidad','text',{}],
+    ['civil','Estado civil','text',{}]
+  ]],
+  ['Contacto', [
+    ['phone','Teléfono','tel',{}],
+    ['phone2','Otro teléfono','tel',{}],
+    ['email','Email','email',{full:true}]
+  ]],
+  ['Domicilio', [
+    ['address','Calle, número, piso y depto.','text',{full:true}],
+    ['city','Localidad / barrio','text',{}],
+    ['province','Provincia','text',{}],
+    ['zip','Código postal','text',{}],
+    ['addressRef','Entre calles / referencia','text',{}]
+  ]],
+  ['Trabajo', [
+    ['job','Ocupación','text',{}],
+    ['employer','Empresa / lugar de trabajo','text',{}],
+    ['workAddress','Dirección del trabajo','text',{}],
+    ['workPhone','Teléfono del trabajo','tel',{}],
+    ['income','Ingreso mensual aprox. ($)','number',{im:'numeric'}],
+    ['payday','Día de cobro','text',{ph:'Ej.: del 1 al 5'}]
+  ]],
+  ['Garante o referencia', [
+    ['refName','Nombre y apellido','text',{}],
+    ['refRel','Vínculo','text',{ph:'Ej.: hermano, jefe'}],
+    ['refDni','DNI','text',{im:'numeric'}],
+    ['refPhone','Teléfono','tel',{}],
+    ['refAddress','Domicilio','text',{full:true}]
+  ]]
+];
+const CLIENT_KEYS = CLIENT_SECTIONS.flatMap(s => s[1].map(f => f[0])).concat(['cat','notes']);
+function clientFields(f, px = ''){ const o = {}; CLIENT_KEYS.forEach(k => { if(f.elements[px + k]) o[k] = String(f.elements[px + k].value).trim(); }); return o; }
+const curCat = f => f.client.value === '__new' ? f.elements.c_cat.value : client(f.client.value).cat;
+function ageOf(birth){ if(!birth) return null; const t = today(); let a = Number(t.slice(0,4)) - Number(birth.slice(0,4)); if(t.slice(5) < birth.slice(5)) a--; return a >= 0 && a < 130 ? a : null; }
+function clientFormHtml(c, isNew, px = ''){
+  const r = S.settings.rates;
+  return CLIENT_SECTIONS.map(([title, fields], si) => `<fieldset class="fs"><legend>${title}</legend><div class="grid2">${fields.map(([k, label, type, o]) => {
+    const extra = k === 'birth' && ageOf(c.birth) !== null ? ` <span class="muted">(${ageOf(c.birth)} años)</span>` : '';
+    return `<div class="field" ${o.full ? 'style="grid-column:1/-1"' : ''}><label for="cl-${px}${k}">${label}${extra}</label><input id="cl-${px}${k}" name="${px}${k}" type="${type}" value="${esc(c[k] || '')}" ${o.im ? `inputmode="${o.im}"` : ''} ${o.ph ? `placeholder="${esc(o.ph)}"` : ''} ${o.req ? 'required' : ''} ${o.req && isNew ? 'autofocus' : ''} autocomplete="off"></div>`;
+  }).join('')}${si === 0 ? `<div class="field" style="grid-column:1/-1"><label for="cl-${px}cat">Categoría</label><select id="cl-${px}cat" name="${px}cat">${['A','B','C'].map(k => `<option value="${k}" ${c.cat === k ? 'selected' : ''}>${k} · ${pct(r[k])} mensual</option>`).join('')}</select></div>` : ''}</div></fieldset>`).join('')
+  + `<div class="field"><label for="cl-${px}notes">Notas sobre el cliente</label><textarea id="cl-${px}notes" name="${px}notes">${esc(c.notes || '')}</textarea></div>`;
+}
+
+/* ---------- vistas ---------- */
+function vResumen(){
+  return capitalHtml() + (UI.bannerHtml ? `<div class="ex-wrap">${UI.bannerHtml}</div>` : '') + vResumenBody();
+}
+function vResumenBody(){
+  if(!S.loans.length) return `<section class="panel"><h2>Todavía no cargaste préstamos</h2><p class="note">Primero agregá un cliente y después registrá el préstamo. La app calcula la cuota y arma el calendario de pagos.</p><div class="toolbar"><button class="btn primary" data-act="new-loan">Nuevo préstamo</button><button class="btn" data-act="new-client">Nuevo cliente</button></div></section>`;
+  let owed = 0, paid = 0, capital = 0, overdue = 0, interestLeft = 0, active = 0;
+  const late = [], upcoming = []; const t = today(), lim = addDays(t, 15);
+  S.loans.forEach(l => {
+    const st = loanStats(l);
+    owed += st.owed; paid += st.paid; overdue += st.overdue;
+    if(st.status !== 'terminado'){ capital += l.amount; active++; }
+    l.cuotas.forEach(q => { const qs = qStatus(q); if(qs !== 'pagada') interestLeft += Math.max(0, q.interest - Math.max(0, paidOf(q) - q.capital)); if((qs === 'pendiente' || qs === 'parcial') && q.due <= lim) upcoming.push({l, q}); });
+    if(st.status === 'atrasado') late.push({l, st});
+  });
+  late.sort((a,b) => a.st.oldestLate.due.localeCompare(b.st.oldestLate.due));
+  upcoming.sort((a,b) => a.q.due.localeCompare(b.q.due));
+  const lateRows = late.map(({l, st}) => { const d = daysBetween(st.oldestLate.due, t); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${esc(client(l.clientId).name)}</span><span class="d">Cuota ${st.oldestLate.n}/${l.n} · venció el ${fdate(st.oldestLate.due)} (hace ${d} día${d===1?'':'s'})</span><span class="a"><span class="num" style="color:var(--bad);font-weight:700">${money(st.overdue)}</span>${pill('vencida')}</span></button>`; }).join('');
+  const upRows = upcoming.map(({l, q}) => { const d = daysBetween(t, q.due); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${esc(client(l.clientId).name)}</span><span class="d">Cuota ${q.n}/${l.n} · ${d === 0 ? 'vence hoy' : 'vence el ' + fdate(q.due) + ' (en ' + d + ' día' + (d===1?'':'s') + ')'}</span><span class="a"><span class="num" style="font-weight:700">${money(q.amount - paidOf(q))}</span>${qStatus(q) === 'parcial' ? pill('parcial') : ''}</span></button>`; }).join('');
+  return `
+  <section class="stats" aria-label="Totales">
+    <div class="stat"><span class="lbl">Por cobrar</span><span class="val">${money(owed)}</span><span class="sub">${active} préstamo${active===1?'':'s'} activo${active===1?'':'s'}</span></div>
+    <div class="stat ${overdue > 0.5 ? 'bad' : ''}"><span class="lbl">Vencido</span><span class="val">${money(overdue)}</span><span class="sub">${late.length} con atraso</span></div>
+    <div class="stat"><span class="lbl">Cobrado</span><span class="val">${money(paid)}</span><span class="sub">en total</span></div>
+    <div class="stat"><span class="lbl">Capital prestado</span><span class="val">${money(capital)}</span><span class="sub">intereses por cobrar: ${money(interestLeft)}</span></div>
+  </section>
+  <section><div class="sec-head" style="margin-bottom:10px"><h2>Atrasados</h2></div><div class="ledger">${lateRows || '<div class="empty">Nadie está atrasado.</div>'}</div></section>
+  <section><div class="sec-head" style="margin-bottom:10px"><h2>Próximos vencimientos</h2><span class="muted small">próximos 15 días</span></div><div class="ledger">${upRows || '<div class="empty">No hay cuotas que venzan en los próximos 15 días.</div>'}</div></section>
+  <div class="toolbar"><button class="btn primary" data-act="new-loan">+ Nuevo préstamo</button></div>`;
+}
+
+function vPrestamos(){
+  const all = S.loans.map(l => ({l, st:loanStats(l), c:client(l.clientId)}));
+  const count = f => all.filter(x => f === 'todos' || (f === 'activos' ? x.st.status !== 'terminado' : f === 'atrasados' ? x.st.status === 'atrasado' : x.st.status === 'terminado')).length;
+  const q = UI.q.trim().toLowerCase();
+  const list = all.filter(x => {
+    const f = UI.filter;
+    if(f === 'activos' && x.st.status === 'terminado') return false;
+    if(f === 'atrasados' && x.st.status !== 'atrasado') return false;
+    if(f === 'terminados' && x.st.status !== 'terminado') return false;
+    return !q || (x.c.name + ' ' + (x.c.dni || '')).toLowerCase().includes(q) || (x.c.dni || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§');
+  }).sort((a,b) => (a.st.next ? a.st.next.due : '9999').localeCompare(b.st.next ? b.st.next.due : '9999'));
+  const chip = (f, label) => `<button class="chip" data-act="filter" data-f="${f}" aria-pressed="${UI.filter === f}">${label}<span class="n">${count(f)}</span></button>`;
+  const cards = list.map(({l, st, c}) => `
+    <button class="card" data-act="open-loan" data-id="${l.id}">
+      <span class="hd"><span class="who">${catBadge(c.cat)}<span>${esc(c.name)}</span></span><span style="display:flex;gap:6px;align-items:center"><span class="tag">${freqOf(l) === 'semanal' ? 'Semanal' : 'Mensual'}</span>${pill(st.status)}</span></span>
+      <span class="ft"><span>Prestaste <b class="num">${money(l.amount)}</b></span><span>Te devuelve <b class="num">${money(st.total)}</b></span></span>
+      <span class="fig"><span class="big">${money(st.owed)}</span><span class="muted small">falta cobrar</span></span>
+      <span class="bar"><i style="width:${st.total ? Math.min(100, st.paid / st.total * 100) : 0}%"></i></span>
+      <span class="ft"><span>${st.paidCount}/${l.n} cuotas de <span class="num">${money(st.cuota)}</span></span><span>${st.next ? 'vence ' + fdate(st.next.due) : 'cancelado'}</span></span>
+    </button>`).join('');
+  return `
+  <div class="sec-head"><h2>Préstamos</h2><button class="btn primary" data-act="new-loan">+ Nuevo préstamo</button></div>
+  <div class="toolbar"><div class="chips">${chip('activos','Activos')}${chip('atrasados','Atrasados')}${chip('terminados','Terminados')}${chip('todos','Todos')}</div>
+  <input id="q" class="search" type="search" placeholder="Buscar por nombre o DNI" value="${esc(UI.q)}" aria-label="Buscar por nombre o DNI"></div>
+  <div class="cards">${cards || '<div class="empty">No hay préstamos en esta lista.</div>'}</div>`;
+}
+
+function vClientes(){
+  const rows = S.clients.slice().sort((a,b) => a.name.localeCompare(b.name, 'es')).map(c => {
+    const ls = S.loans.filter(l => l.clientId === c.id).map(loanStats);
+    const owed = ls.reduce((s,x) => s + x.owed, 0), late = ls.some(x => x.status === 'atrasado'), act = ls.filter(x => x.status !== 'terminado').length;
+    return `<button class="row" data-act="open-client" data-id="${c.id}"><span class="t" style="display:flex;gap:10px;align-items:center">${catBadge(c.cat)}<span>${esc(c.name)}</span></span><span class="d">${act} activo${act===1?'':'s'}${c.dni ? ' · DNI ' + esc(c.dni) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${docsOf(c.id).length ? ' · ' + docsOf(c.id).length + ' pagaré' + (docsOf(c.id).length === 1 ? '' : 's') : ''}</span><span class="a"><span class="num" style="font-weight:700">${money(owed)}</span>${late ? pill('atrasado') : ''}</span></button>`;
+  }).join('');
+  const r = S.settings.rates;
+  return `
+  <div class="sec-head"><h2>Clientes</h2><button class="btn primary" data-act="new-client">+ Nuevo cliente</button></div>
+  <p class="note">Categorías: ${catBadge('A')} ${pct(r.A)} mensual · ${catBadge('B')} ${pct(r.B)} · ${catBadge('C')} ${pct(r.C)}. La tasa de cada categoría se cambia en Ajustes.</p>
+  <div class="ledger">${rows || '<div class="empty">Todavía no hay clientes.</div>'}</div>`;
+}
+
+function vAjustes(){
+  const r = S.settings.rates;
+  const rate = k => `<div class="field"><label for="rate-${k}">${catBadge(k)} Categoría ${k} · % mensual</label><input id="rate-${k}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r[k]}" data-rate="${k}"><span class="rate-tea" id="tea-${k}">Equivale a ${pct(Math.round(tea(r[k])))} anual (TEA)</span></div>`;
+  return `
+  <h2>Ajustes</h2>
+  <section class="panel">
+    <h3>Tasas por categoría</h3>
+    <div class="rates">${rate('A')}${rate('B')}${rate('C')}</div>
+    <p class="note">En préstamos semanales se propone la tasa semanal equivalente (por ejemplo, ${pct(r.A)} mensual ≈ ${pct(weeklyFromMonthly(r.A))} semanal).</p>
+    <p class="note">Se usan como valor inicial al crear un préstamo, y ahí las podés cambiar. Los préstamos que ya existen mantienen su tasa.</p>
+    <p class="note"><b>Para tener en cuenta:</b> en Argentina no hay una tasa máxima fija para préstamos entre particulares, pero un juez puede reducir intereses que considere desproporcionados (art. 771 del Código Civil y Comercial), comparándolos con las tasas bancarias del momento. Mirá siempre la TEA: es lo que el préstamo cuesta en un año.</p>
+  </section>
+  <section class="panel">
+    <h3>PIN de acceso</h3>
+    ${getPin() ? `<p class="note">La app está protegida con PIN. Se pide al abrirla y cuando volvés después de un rato.</p>` : `<p class="note">Poné un PIN para que nadie pueda abrir la app sin él.</p>`}
+    <form data-form="pin" novalidate>
+      <div class="grid2">
+        ${getPin() ? `<div class="field" style="grid-column:1/-1"><label for="pin-cur">PIN actual</label><input id="pin-cur" name="curpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>` : ''}
+        <div class="field"><label for="pin-new">${getPin() ? 'PIN nuevo' : 'PIN'} (6 a 8 números)</label><input id="pin-new" name="newpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+        <div class="field"><label for="pin-rep">Repetí el PIN</label><input id="pin-rep" name="reppin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+      </div>
+      <p class="note small" id="pin-err" style="color:var(--bad);margin:0" hidden></p>
+      <div class="toolbar"><button class="btn primary" type="submit">${getPin() ? 'Cambiar PIN' : 'Activar PIN'}</button>${getPin() ? '<button class="btn" type="button" data-act="pin-remove">Quitar PIN</button><button class="btn" type="button" data-act="lock-now">Bloquear ahora</button>' : ''}</div>
+    </form>
+    ${getPin() ? `<div class="field"><label for="lock-after">Bloquear cuando salís de la app</label><select id="lock-after">${[[0,'Enseguida'],[60,'Después de 1 minuto'],[300,'Después de 5 minutos'],[900,'Después de 15 minutos']].map(([v,t]) => `<option value="${v}" ${(S.settings.lockAfter ?? 60) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>` : ''}
+    <p class="note small">El PIN evita que otra persona abra la app en tu celular o tu PC. Si lo olvidás no se puede recuperar: solo se puede entrar borrando los datos, así que hacé copias de seguridad. El PIN no viaja en la copia de seguridad.</p>
+  </section>
+  <section class="panel">
+    <h3>Copia de seguridad</h3>
+    <p class="note">Los datos se guardan solo en este navegador y en este dispositivo. Para pasarlos del celular a la PC (o al revés), o para no perderlos, hacé una copia y restaurala en el otro dispositivo.</p>
+    <div class="field"><label for="bk-pass">Contraseña para la copia (muy recomendado)</label><input id="bk-pass" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></div>
+    <p class="note small" style="margin:0">Con contraseña, la copia queda cifrada: si alguien la ve en tu WhatsApp, mail o Drive, no puede leer los DNI ni los datos. Sin la contraseña no se puede restaurar, así que anotala en un lugar seguro.</p>
+    <div class="toolbar"><button class="btn primary" data-act="export-file">Descargar copia</button><button class="btn" data-act="export-copy">Copiar copia al portapapeles</button></div>
+    <p class="note small">Si "Descargar" no hace nada (pasa en la versión online), usá "Copiar" y pegá el texto en una nota o en un chat contigo mismo.</p>
+    <div class="field"><label for="imp-file">Restaurar desde archivo</label><input id="imp-file" type="file" accept=".json,application/json,text/plain"></div>
+    <div class="field"><label for="imp-text">O pegá acá el texto de la copia</label><textarea id="imp-text" placeholder='{"settings":…}'></textarea></div>
+    <div class="toolbar"><button class="btn" data-act="import-text">Revisar texto pegado</button></div>
+    <div id="imp-confirm"></div>
+  </section>
+  <section class="panel">
+    <h3>Borrar datos</h3>
+    <div class="toolbar">
+      ${S.clients.some(c => c.example) || S.loans.some(l => l.example) ? '<button class="btn" data-act="clear-examples">Borrar datos de ejemplo</button>' : ''}
+      <button class="btn danger" data-act="wipe" data-confirm="Tocá de nuevo para borrar todo">Borrar todo</button>
+    </div>
+  </section>
+  <p class="note small">Libreta de Préstamos · cálculo de cuotas con sistema francés (cuota fija).</p>`;
+}
+
+const VIEWS = {resumen:vResumen, prestamos:vPrestamos, clientes:vClientes, ajustes:vAjustes};
+function render(){
+  if(UI.locked) return;
+  $('#lockBtn').hidden = !getPin();
+  $('#hoy').textContent = 'hoy ' + fdate(today());
+  const ex = S.clients.some(c => c.example) || S.loans.some(l => l.example);
+  let b = '';
+  if(ex) b += `<div class="banner"><span><b>Datos de ejemplo.</b> Marta, Diego y Lucía son inventados para que veas cómo funciona.</span><button class="btn sm" data-act="clear-examples">Borrar ejemplos y empezar</button></div>`;
+  if(!DB.ok) b += `<div class="banner"><span><b>Las fotos de pagarés no se pueden guardar</b> en este navegador. Se ven ahora, pero se pierden al cerrar.</span></div>`;
+  if(!storageOK) b += `<div class="banner"><span><b>No se pueden guardar datos</b> en este navegador (modo incógnito o almacenamiento bloqueado). Lo que cargues se pierde al cerrar.</span></div>`;
+  UI.bannerHtml = b;
+  $('#banner').innerHTML = UI.tab === 'resumen' ? '' : b;
+  $('#view').innerHTML = VIEWS[UI.tab]();
+  document.querySelectorAll('.tabs button').forEach(btn => btn.setAttribute('aria-current', btn.dataset.tab === UI.tab ? 'page' : 'false'));
+  if(UI.sheet) renderSheet();
+}
+function commit(msg){ save(); render(); if(msg) toast(msg); }
+
+/* ---------- hojas ---------- */
+function openSheet(s){ UI.sheet = s; renderSheet(); $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; setTimeout(() => { const f = $('#sheetBox [autofocus]'); if(f) f.focus(); }, 30); }
+function closeSheet(){ UI.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; }
+function sheetFrame(title, body){ return `<div class="sheet-hd"><h2>${title}</h2><button class="x" data-act="close" aria-label="Cerrar">×</button></div><div class="sheet-bd">${body}</div>`; }
+function renderSheet(){
+  const s = UI.sheet, box = $('#sheetBox');
+  if(s.type === 'loan'){
+    const l = loan(s.id); if(!l){ closeSheet(); return; }
+    const st = loanStats(l), c = client(l.clientId);
+    const rows = l.cuotas.map((q, i) => { const qs = qStatus(q), p = paidOf(q); return `<tr class="${qs === 'vencida' ? 'is-bad' : ''}"><td class="num">${q.n}</td><td>${fdate(q.due)}</td><td class="r num">${money(q.amount)}</td><td class="r num">${p ? money(p) : '—'}</td><td>${pill(qs)}</td><td><div class="acts">${qs !== 'pagada' ? `<button class="btn sm primary" data-act="pay" data-id="${l.id}" data-i="${i}">Cobrar</button>` : ''}${q.payments.length ? `<button class="btn sm link" data-act="undo" data-id="${l.id}" data-i="${i}" title="Deshacer el último pago de esta cuota">Deshacer</button>` : ''}</div></td></tr>`; }).join('');
+    box.innerHTML = sheetFrame(`${catBadge(c.cat)} ${esc(c.name)}`, `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${pill(st.status)}<span class="muted small">Préstamo del ${fdate(l.created)}${l.example ? ' · ejemplo' : ''}</span></div>
+      <dl class="facts" style="margin:0">
+        <div><dt>Le prestaste</dt><dd>${money(l.amount)}</dd></div>
+        <div><dt>Te devuelve en total</dt><dd>${money(st.total)}</dd></div>
+        <div><dt>Ganancia</dt><dd style="color:var(--ok)">${money(st.total - l.amount)}</dd></div>
+        <div><dt>Cuota</dt><dd>${money(st.cuota)}</dd></div>
+        <div><dt>Ya cobraste</dt><dd>${money(st.paid)}</dd></div>
+        <div><dt>Falta cobrar</dt><dd style="color:${st.overdue > .5 ? 'var(--bad)' : 'inherit'}">${money(st.owed)}</dd></div>
+      </dl>
+      <p class="note small" style="margin:0">Cuotas ${PER[freqOf(l)].plural} · tasa ${pct(l.rate)} ${PER[freqOf(l)].word}${freqOf(l) === 'semanal' ? ' (≈ ' + pct(r2(monthlyFromWeekly(l.rate))) + ' mensual)' : ''} · equivale a ${pct(Math.round(teaP(l.rate, freqOf(l))))} anual (TEA)</p>
+      ${(() => { const n = DOCS.filter(d => d.loanId === l.id).length; return `<div class="toolbar"><span class="muted small" style="flex:1">${n ? n + ' foto' + (n === 1 ? '' : 's') + ' de pagaré' : 'Sin foto del pagaré'}</span><button class="btn sm" data-act="open-client-docs" data-id="${l.clientId}" data-loan="${l.id}">${n ? 'Ver pagarés' : 'Cargar pagaré'}</button></div>`; })()}
+      <div class="bar"><i style="width:${st.total ? Math.min(100, st.paid / st.total * 100) : 0}%"></i></div>
+      <div><h3>Cronograma · ${l.n} cuotas ${PER[freqOf(l)].plural}</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Vence</th><th class="r">Cuota</th><th class="r">Pagado</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>
+      ${l.notes ? `<p class="note">${esc(l.notes)}</p>` : ''}
+      <div class="toolbar">${st.next ? `<button class="btn" data-act="reminder" data-id="${l.id}">Copiar recordatorio</button>` : ''}<span style="flex:1"></span><button class="btn danger" data-act="del-loan" data-id="${l.id}" data-confirm="Tocá de nuevo para borrar">Borrar préstamo</button></div>`);
+  }
+  else if(s.type === 'new-loan'){
+    const sel = s.clientId && S.clients.some(c => c.id === s.clientId) ? s.clientId : '__new';
+    const opts = S.clients.slice().sort((a,b) => a.name.localeCompare(b.name,'es')).map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)} (cat. ${esc(c.cat)})</option>`).join('');
+    box.innerHTML = sheetFrame('Nuevo préstamo', `
+      <form data-form="loan" novalidate>
+        <div class="grid2">
+          <div class="field"><label for="nl-client">Cliente</label><select id="nl-client" name="client"><option value="__new" ${sel === '__new' ? 'selected' : ''}>+ Cliente nuevo</option>${opts}</select></div>
+          <div class="field"><label for="nl-freq">Cuotas</label><select id="nl-freq" name="freq"><option value="mensual">Mensuales</option><option value="semanal">Semanales</option></select></div>
+        </div>
+        <div id="nl-newclient" class="nc" ${sel === '__new' ? '' : 'hidden'}>
+          <h3>Datos del cliente nuevo</h3>
+          <div style="display:flex;flex-direction:column;gap:12px">${clientFormHtml({cat:'B'}, sel === '__new', 'c_')}</div>
+          <p class="note small">Al guardar el préstamo, el cliente se agrega solo a Clientes con todos estos datos.</p>
+        </div>
+        <h3 style="margin:4px 0 -6px">Datos del préstamo</h3>
+        <div class="seg" role="tablist" aria-label="Cómo calcular">
+          <button type="button" role="tab" data-act="calc-mode" data-mode="total" aria-selected="${UI.calcMode === 'total'}">Elijo cuánto me devuelve</button>
+          <button type="button" role="tab" data-act="calc-mode" data-mode="tasa" aria-selected="${UI.calcMode === 'tasa'}">Elijo la tasa</button>
+        </div>
+        <div class="grid2">
+          <div class="field"><label for="nl-amount">Monto prestado ($)</label><input id="nl-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="100000" required autofocus></div>
+          <div class="field"><label for="nl-n">Cantidad de cuotas</label><input id="nl-n" name="n" type="number" min="1" max="120" step="1" inputmode="numeric" value="6" required></div>
+          <div class="field" id="nl-total-wrap" ${UI.calcMode === 'total' ? '' : 'hidden'}><label for="nl-total">Total que te devuelve ($)</label><input id="nl-total" name="total" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej.: 130000"></div>
+          <div class="field" id="nl-rate-wrap" ${UI.calcMode === 'total' ? 'hidden' : ''}><label for="nl-rate" id="nl-rate-lbl">Tasa mensual (%)</label><input id="nl-rate" name="rate" type="number" min="0" max="100" step="0.1" inputmode="decimal" value="${defaultRate(sel === '__new' ? 'B' : client(sel).cat, 'mensual')}" required></div>
+          <div class="field"><label for="nl-first">Vence la primera cuota</label><input id="nl-first" name="first" type="date" value="${addMonths(today(), 1)}" required></div>
+        </div>
+        <div class="preview" id="nl-preview"></div>
+        <label class="check" for="nl-caja"><input type="checkbox" id="nl-caja" name="fromCaja" checked> Descontar de mi capital (${money(capitalNow())} disponible)</label>
+        <div class="field"><label for="nl-notes">Notas (opcional)</label><input id="nl-notes" name="notes" type="text" placeholder="Ej.: entregado en efectivo"></div>
+        <p class="note small" id="nl-err" style="color:var(--bad)" hidden></p>
+        <div class="toolbar"><button class="btn primary" type="submit">Guardar préstamo</button><button class="btn" type="button" data-act="close">Cancelar</button></div>
+      </form>`);
+    updatePreview();
+  }
+  else if(s.type === 'client'){
+    const c = s.id ? S.clients.find(x => x.id === s.id) : {name:'', phone:'', cat:'B', notes:''};
+    if(!c){ closeSheet(); return; }
+    const r = S.settings.rates;
+    const ls = s.id ? S.loans.filter(l => l.clientId === c.id) : [];
+    const docs = s.id ? docsOf(c.id).sort((a,b) => (b.date || '').localeCompare(a.date || '')) : [];
+    const pane = s.id ? (s.pane || 'datos') : 'datos';
+    const seg = s.id ? `<div class="seg" role="tablist"><button type="button" role="tab" data-act="pane" data-pane="datos" aria-selected="${pane === 'datos'}">Datos y préstamos</button><button type="button" role="tab" data-act="pane" data-pane="pagares" aria-selected="${pane === 'pagares'}">Pagarés <span class="num">${docs.length}</span></button></div>` : '';
+    if(pane === 'pagares'){
+      const loanLabel = id => { const l = id && loan(id); return l ? money(l.amount) + ' en ' + l.n + ' cuotas' : 'General'; };
+      const tiles = docs.map(d => `<button class="doc" data-act="open-doc" data-id="${d.id}"><img src="${esc(sImg(d.data))}" alt="Pagaré de ${esc(c.name)}" loading="lazy"><span><b>${esc(loanLabel(d.loanId))}</b>${fdate(d.date)}</span></button>`).join('');
+      const opts = ls.map(l => `<option value="${l.id}" ${s.loanId === l.id ? 'selected' : ''}>${money(l.amount)} en ${l.n} cuotas (${fdate(l.created)})</option>`).join('');
+      box.innerHTML = sheetFrame(`${catBadge(c.cat)} ${esc(c.name)}`, `${seg}
+        <div class="panel">
+          <div class="field"><label for="doc-loan">¿De qué préstamo es?</label><select id="doc-loan"><option value="">General (sin préstamo)</option>${opts}</select></div>
+          <div class="toolbar"><label class="btn primary" for="doc-file" tabindex="0">+ Cargar foto del pagaré</label><input id="doc-file" type="file" accept="image/*" multiple hidden></div>
+          <p class="note small">Desde el celular podés sacar la foto en el momento o elegirla de la galería. Se achica sola para ocupar poco lugar.</p>
+        </div>
+        <div class="docs">${tiles || '<div class="empty" style="grid-column:1/-1">Todavía no cargaste pagarés de este cliente.</div>'}</div>
+        <p class="note small">Guardá siempre el pagaré original en papel. La foto sirve de referencia, pero para reclamar vale el original firmado.</p>`);
+      return;
+    }
+    const lrows = ls.map(l => { const st = loanStats(l); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${money(l.amount)} en ${l.n} cuotas</span><span class="d">${fdate(l.created)} · cuotas ${PER[freqOf(l)].plural} · ${pct(l.rate)} ${PER[freqOf(l)].word}</span><span class="a"><span class="num">${money(st.owed)}</span>${pill(st.status)}</span></button>`; }).join('');
+    box.innerHTML = sheetFrame(s.id ? `${catBadge(c.cat)} ${esc(c.name)}` : 'Nuevo cliente', `${seg}
+      <form data-form="client" novalidate>
+        ${clientFormHtml(c, !s.id)}
+        <p class="note small" style="margin:0">Solo el nombre es obligatorio. Lo demás lo podés completar cuando quieras.</p>
+        <p class="note small" id="cl-err" style="color:var(--bad)" hidden></p>
+        <div class="toolbar"><button class="btn primary" type="submit">${s.id ? 'Guardar cambios' : 'Guardar cliente'}</button>${s.id ? '' : '<button class="btn" type="button" data-act="close">Cancelar</button>'}</div>
+      </form>
+      ${s.id ? `<div><div class="sec-head" style="margin-bottom:8px"><h3 style="margin:0">Préstamos</h3><button class="btn sm primary" data-act="new-loan" data-client="${c.id}">+ Prestarle</button></div><div class="ledger">${lrows || '<div class="empty">Sin préstamos.</div>'}</div></div>
+      <div class="toolbar"><span style="flex:1"></span><button class="btn danger" data-act="del-client" data-id="${c.id}" data-confirm="${ls.length ? 'Se borran también sus ' + ls.length + ' préstamos. Tocá de nuevo' : 'Tocá de nuevo para borrar'}">Borrar cliente</button></div>` : ''}`);
+  }
+  else if(s.type === 'doc'){
+    const d = DOCS.find(x => x.id === s.id); if(!d){ closeSheet(); return; }
+    const c = client(d.clientId);
+    const opts = S.loans.filter(l => l.clientId === d.clientId).map(l => `<option value="${l.id}" ${d.loanId === l.id ? 'selected' : ''}>${money(l.amount)} en ${l.n} cuotas (${fdate(l.created)})</option>`).join('');
+    box.innerHTML = sheetFrame(`Pagaré · ${esc(c.name)}`, `
+      <img class="doc-full" src="${esc(sImg(d.data))}" alt="Pagaré de ${esc(c.name)}">
+      <div class="field"><label for="doc-relink">Préstamo</label><select id="doc-relink" data-id="${d.id}"><option value="">General (sin préstamo)</option>${opts}</select></div>
+      <p class="note small" style="margin:0">Cargado el ${fdate(d.date)}${d.name ? ' · ' + esc(d.name) : ''}</p>
+      <div class="toolbar"><button class="btn" data-act="open-client-docs" data-id="${d.clientId}">Volver a ${esc(c.name.split(' ')[0])}</button><span style="flex:1"></span><button class="btn danger" data-act="del-doc" data-id="${d.id}" data-confirm="Tocá de nuevo para borrar">Borrar foto</button></div>`);
+  }
+  else if(s.type === 'caja'){
+    const movs = S.caja.map(m => ({date:m.date, amount:m.amount, text:m.note || (m.amount >= 0 ? 'Capital sumado' : 'Capital retirado'), id:m.id}));
+    S.loans.filter(l => l.fromCaja).forEach(l => {
+      const name = client(l.clientId).name;
+      movs.push({date:l.created, amount:-l.amount, text:'Préstamo a ' + name, loanId:l.id});
+      l.cuotas.forEach(q => q.payments.forEach(p => movs.push({date:p.date, amount:p.amount, text:'Cobro cuota ' + q.n + '/' + l.n + ' · ' + name, loanId:l.id})));
+    });
+    movs.sort((a,b) => b.date.localeCompare(a.date));
+    const rows = movs.map(m => `<tr><td>${fdate(m.date)}</td><td style="overflow-wrap:anywhere">${esc(m.text)}</td><td class="r num" style="color:${m.amount < 0 ? 'var(--bad)' : 'var(--ok)'};font-weight:700">${m.amount < 0 ? '−' : '+'}${money(Math.abs(m.amount))}</td><td class="r">${m.id ? `<button class="btn sm link" data-act="del-mov" data-id="${m.id}" data-confirm="¿Borrar?">Borrar</button>` : ''}</td></tr>`).join('');
+    box.innerHTML = sheetFrame('Movimientos del capital', `
+      <div class="facts" style="grid-template-columns:minmax(0,1fr)"><div><dt>Capital disponible</dt><dd>${money(capitalNow())}</dd></div></div>
+      <p class="note">Lo que sumás o restás a mano, más los préstamos que marcaste como "Descontar de mi capital" y los cobros de esos préstamos, que se anotan solos.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th class="r">Monto</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">Todavía no hay movimientos.</td></tr>'}</tbody></table></div>`);
+  }
+  else if(s.type === 'pay'){
+    const l = loan(s.id); if(!l){ closeSheet(); return; }
+    const q = l.cuotas[s.i], rest = r2(q.amount - paidOf(q)), st = loanStats(l);
+    box.innerHTML = sheetFrame(`Cobrar cuota ${q.n}/${l.n}`, `
+      <p class="note">${esc(client(l.clientId).name)} · vence el ${fdate(q.due)} · cuota de <span class="num">${money(q.amount)}</span>${paidOf(q) ? ', ya pagó ' + money(paidOf(q)) : ''}.</p>
+      <form data-form="pay" novalidate>
+        <div class="grid2">
+          <div class="field"><label for="py-amount">Monto cobrado ($)</label><input id="py-amount" name="amount" type="number" min="1" step="0.01" inputmode="decimal" value="${rest}" required autofocus></div>
+          <div class="field"><label for="py-date">Fecha</label><input id="py-date" name="date" type="date" value="${today()}" required></div>
+        </div>
+        <p class="note small">Si cobrás más que la cuota, lo que sobra se aplica a las siguientes. Falta en total: <span class="num">${money(st.owed)}</span>.</p>
+        <p class="note small" id="py-err" style="color:var(--bad)" hidden></p>
+        <div class="toolbar"><button class="btn primary" type="submit">Registrar cobro</button><button class="btn" type="button" data-act="open-loan" data-id="${l.id}">Volver</button></div>
+      </form>`);
+  }
+}
+function updatePreview(){
+  const f = document.querySelector('form[data-form="loan"]'); if(!f) return;
+  const a = Number(f.amount.value), n = parseInt(f.n.value, 10), r = Number(f.rate.value);
+  const box = $('#nl-preview');
+  if(!(a > 0) || !(n >= 1) || !(r >= 0) || !f.first.value){ box.innerHTML = '<div style="grid-column:1/-1"><span>Completá monto, cuotas y tasa para ver la cuota.</span></div>'; return; }
+  const fq = f.freq.value;
+  let sch, rate = r;
+  if(UI.calcMode === 'total'){
+    const tot = Number(f.total.value);
+    if(!(tot > 0)){ box.innerHTML = '<div style="grid-column:1/-1"><span>Poné cuánto querés que te devuelva en total y te calculo la cuota.</span></div>'; return; }
+    if(tot < a){ box.innerHTML = '<div style="grid-column:1/-1"><span style="color:var(--bad)">El total a devolver tiene que ser igual o mayor a lo que prestás.</span></div>'; return; }
+    const res = scheduleByTotal(a, n, tot, f.first.value, fq); sch = res.cuotas; rate = res.rate;
+  } else sch = buildSchedule(a, n, r, f.first.value, fq);
+  const total = sch.reduce((s,q) => s + q.amount, 0);
+  const rateTxt = fq === 'semanal' ? pct(rate) + ' semanal (≈ ' + pct(r2(monthlyFromWeekly(rate))) + ' mensual)' : pct(rate) + ' mensual';
+  box.innerHTML = `<div><span>${PER[fq].cuota}</span><b>${money(sch[0].amount)}</b></div><div><span>Total a devolver</span><b>${money(total)}</b></div><div><span>Ganancia</span><b>${money(total - a)}</b></div><div><span>TEA equivalente</span><b>${pct(Math.round(teaP(rate, fq)))}</b></div><div style="grid-column:1/-1"><span>${UI.calcMode === 'total' ? 'Equivale a una tasa de ' + rateTxt + ' · ' : ''}Última cuota: ${fdate(sch[n-1].due)}${UI.calcMode !== 'total' && fq === 'semanal' ? ' · ' + rateTxt : ''}</span></div>`;
+}
+
+/* ---------- acciones ---------- */
+function applyPayment(l, i, amount, date){
+  let left = r2(amount);
+  for(let k = i; k < l.cuotas.length && left > 0.004; k++){
+    const q = l.cuotas[k], rest = r2(q.amount - paidOf(q));
+    if(rest <= 0.004) continue;
+    const take = r2(Math.min(rest, left));
+    q.payments.push({date, amount:take, group:null});
+    left = r2(left - take);
+  }
+  return left;
+}
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2600); }
+function copyText(text, okMsg){
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch(e){} ta.remove(); toast(ok ? okMsg : 'No se pudo copiar. Probá desde otro navegador.'); };
+  try { navigator.clipboard.writeText(text).then(() => toast(okMsg), fallback); } catch(e){ fallback(); }
+}
+function exportData(){ return JSON.stringify({app:'libreta-prestamos', version:2, exported:today(), settings:S.settings, clients:S.clients, loans:S.loans, caja:S.caja, docs:DOCS}); }
+
+/* ---------- copias con contraseña (AES-GCM, clave derivada con PBKDF2) ---------- */
+const b64 = buf => { let s = ''; const a = new Uint8Array(buf); for(let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function deriveKey(pass, salt){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:310000, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+}
+async function encryptBackup(text, pass){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await deriveKey(pass, salt), new TextEncoder().encode(text));
+  return JSON.stringify({app:'libreta-prestamos', enc:1, salt:b64(salt), iv:b64(iv), data:b64(ct)});
+}
+async function decryptBackup(obj, pass){
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(obj.iv)}, await deriveKey(pass, unb64(obj.salt)), unb64(obj.data));
+  return new TextDecoder().decode(pt);
+}
+async function buildExport(){
+  const pass = ($('#bk-pass') || {}).value || '';
+  if(pass && pass.length < 8){ toast('La contraseña de la copia tiene que tener al menos 8 caracteres.'); return null; }
+  if(!pass) return exportData();
+  try { return await encryptBackup(exportData(), pass); }
+  catch(e){ toast('Este navegador no puede proteger la copia con contraseña.'); return null; }
+}
+
+/* ---------- limpieza de copias importadas: una copia manipulada no puede meter código ---------- */
+const sId = v => { const s = String(v ?? ''); return /^[a-z0-9]{1,40}$/i.test(s) ? s : uid(); };
+const sOptId = v => v == null || v === '' ? null : (/^[a-z0-9]{1,40}$/i.test(String(v)) ? String(v) : null);
+const sNum = (v, d = 0) => { const n = Number(v); return isFinite(n) ? n : d; };
+const sDate = (v, d) => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : d;
+const sStr = (v, max = 2000) => String(v ?? '').slice(0, max);
+const sImg = v => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(v)) ? String(v) : '';
+const isObj = v => v && typeof v === 'object';
+function sanitize(d){
+  const t = today();
+  const clients = d.clients.filter(isObj).map(c => {
+    const o = {id:sId(c.id)};
+    CLIENT_KEYS.forEach(k => { if(c[k] != null) o[k] = sStr(c[k]); });
+    o.name = o.name || 'Sin nombre'; o.cat = ['A','B','C'].includes(c.cat) ? c.cat : 'B';
+    if(c.example) o.example = true;
+    return o;
+  });
+  const loans = d.loans.filter(l => isObj(l) && Array.isArray(l.cuotas) && l.cuotas.length).map(l => {
+    const cuotas = l.cuotas.filter(isObj).map((q, i) => ({n:i + 1, due:sDate(q.due, t), amount:sNum(q.amount), interest:sNum(q.interest), capital:sNum(q.capital),
+      payments:(Array.isArray(q.payments) ? q.payments : []).filter(isObj).map(p => ({date:sDate(p.date, t), amount:sNum(p.amount)}))}));
+    const o = {id:sId(l.id), clientId:sId(l.clientId), amount:sNum(l.amount), n:cuotas.length, rate:sNum(l.rate), first:sDate(l.first, t), created:sDate(l.created, t),
+      notes:sStr(l.notes), fromCaja:!!l.fromCaja, freq:l.freq === 'semanal' ? 'semanal' : 'mensual', cuotas};
+    if(l.mode === 'total') o.mode = 'total';
+    if(l.example) o.example = true;
+    return o;
+  });
+  const caja = (Array.isArray(d.caja) ? d.caja : []).filter(isObj).map(m => ({id:sId(m.id), date:sDate(m.date, t), amount:sNum(m.amount), note:sStr(m.note, 300)}));
+  const st = isObj(d.settings) ? d.settings : {}, r = isObj(st.rates) ? st.rates : {};
+  const settings = {rates:{A:sNum(r.A, 6), B:sNum(r.B, 9), C:sNum(r.C, 12)}, lockAfter:[0, 60, 300, 900].includes(st.lockAfter) ? st.lockAfter : 60};
+  const docs = Array.isArray(d.docs) ? d.docs.filter(isObj).map(x => ({id:sId(x.id), clientId:sId(x.clientId), loanId:sOptId(x.loanId), date:sDate(x.date, t), name:sStr(x.name, 200), data:sImg(x.data)})).filter(x => x.data) : null;
+  return {settings, clients, loans, caja, docs};
+}
+
+function stageImport(text){
+  let d; try { d = JSON.parse(text); } catch(e){ toast('El texto no es una copia válida.'); return; }
+  if(isObj(d) && d.enc === 1 && d.salt && d.iv && d.data){
+    UI.encImport = d;
+    $('#imp-confirm').innerHTML = `<div class="banner"><div class="field" style="flex:1 1 220px"><label for="imp-pass">Esta copia tiene contraseña</label><input id="imp-pass" type="password" autocomplete="off"></div><button class="btn sm primary" data-act="import-decrypt">Abrir copia</button></div>`;
+    setTimeout(() => { const i = $('#imp-pass'); if(i) i.focus(); }, 30);
+    return;
+  }
+  if(!valid(d)){ toast('El texto no es una copia válida.'); return; }
+  d = sanitize(d);
+  UI.pendingImport = d;
+  $('#imp-confirm').innerHTML = `<div class="banner"><span>La copia tiene <b>${d.clients.length} clientes</b> y <b>${d.loans.length} préstamos</b>${Array.isArray(d.docs) ? ' y <b>' + d.docs.length + ' fotos de pagarés</b>' : ''}. Al restaurarla se reemplaza todo lo que hay ahora.</span><button class="btn sm primary" data-act="import-confirm">Restaurar copia</button></div>`;
+}
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act],[data-tab]');
+  if(!el){ if(e.target.id === 'sheet') closeSheet(); return; }
+  if(el.dataset.tab){ UI.tab = el.dataset.tab; try { localStorage.setItem(KEY + ':tab', UI.tab); } catch(err){} closeSheet(); render(); window.scrollTo(0,0); return; }
+  if(el.dataset.confirm && !el.dataset.armed){
+    el.dataset.armed = '1'; el.dataset.label = el.textContent; el.textContent = el.dataset.confirm;
+    setTimeout(() => { if(el.isConnected){ delete el.dataset.armed; el.textContent = el.dataset.label; } }, 4000);
+    return;
+  }
+  const id = el.dataset.id, act = el.dataset.act;
+  switch(act){
+    case 'close': closeSheet(); break;
+    case 'filter': UI.filter = el.dataset.f; render(); break;
+    case 'open-loan': openSheet({type:'loan', id}); break;
+    case 'new-loan': openSheet({type:'new-loan', clientId:el.dataset.client}); break;
+    case 'new-client': openSheet({type:'client', returnTo:UI.sheet && UI.sheet.type === 'new-loan' ? 'new-loan' : null}); break;
+    case 'open-client': openSheet({type:'client', id}); break;
+    case 'pay': openSheet({type:'pay', id, i:Number(el.dataset.i)}); break;
+    case 'undo': { const q = loan(id).cuotas[Number(el.dataset.i)]; q.payments.pop(); commit('Pago deshecho'); break; }
+    case 'del-loan': S.loans = S.loans.filter(l => l.id !== id); closeSheet(); commit('Préstamo borrado'); break;
+    case 'caja-add': case 'caja-sub': {
+      const a = Number($('#cap-amt').value);
+      if(!(a > 0)){ toast('Poné un monto mayor a 0.'); $('#cap-amt').focus(); break; }
+      S.caja.push({id:uid(), date:today(), amount:act === 'caja-add' ? r2(a) : -r2(a), note:$('#cap-note').value.trim()});
+      commit(act === 'caja-add' ? 'Sumaste ' + money(a) + ' a tu capital' : 'Restaste ' + money(a) + ' de tu capital'); break;
+    }
+    case 'open-caja': openSheet({type:'caja'}); break;
+    case 'lock-now': lockApp(); break;
+    case 'pin-remove': removePin(); break;
+    case 'forgot': $('#lock-forgot').hidden = !$('#lock-forgot').hidden; break;
+    case 'forgot-wipe': {
+      try { localStorage.removeItem(PIN_KEY); localStorage.removeItem(FAIL_KEY); localStorage.removeItem(KEY); } catch(err){}
+      DOCS = []; DB.replace([]); S = defaults(); save();
+      unlockApp(); toast('Se borró todo. Podés restaurar una copia desde Ajustes.'); break;
+    }
+    case 'calc-mode': {
+      UI.calcMode = el.dataset.mode;
+      try { localStorage.setItem(KEY + ':calc', UI.calcMode); } catch(err){}
+      document.querySelectorAll('[data-act="calc-mode"]').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === UI.calcMode));
+      $('#nl-total-wrap').hidden = UI.calcMode !== 'total'; $('#nl-rate-wrap').hidden = UI.calcMode === 'total';
+      updatePreview(); break;
+    }
+    case 'del-mov': S.caja = S.caja.filter(m => m.id !== id); commit('Movimiento borrado'); break;
+    case 'pane': UI.sheet.pane = el.dataset.pane; renderSheet(); break;
+    case 'open-client-docs': openSheet({type:'client', id, pane:'pagares', loanId:el.dataset.loan}); break;
+    case 'open-doc': openSheet({type:'doc', id}); break;
+    case 'del-doc': { const d = DOCS.find(x => x.id === id); DOCS = DOCS.filter(x => x.id !== id); DB.del(id); UI.sheet = {type:'client', id:d.clientId, pane:'pagares'}; commit('Foto borrada'); break; }
+    case 'del-client': docsOf(id).forEach(d => DB.del(d.id)); DOCS = DOCS.filter(d => d.clientId !== id); S.loans = S.loans.filter(l => l.clientId !== id); S.clients = S.clients.filter(c => c.id !== id); closeSheet(); commit('Cliente borrado'); break;
+    case 'reminder': {
+      const l = loan(id), st = loanStats(l), c = client(l.clientId), q = st.next, rest = q.amount - paidOf(q);
+      const late = qStatus(q) === 'vencida';
+      const txt = `Hola ${c.name.split(' ')[0]}! Te recuerdo la cuota ${q.n} de ${l.n} por ${money(rest)}, ${late ? 'que venció el ' + fdate(q.due) : 'que vence el ' + fdate(q.due)}.${st.overdue > rest + .5 ? ' En total tenés ' + money(st.overdue) + ' vencido.' : ''} Gracias!`;
+      copyText(txt, 'Recordatorio copiado. Pegalo en WhatsApp.'); break;
+    }
+    case 'clear-examples': {
+      const exIds = new Set(S.clients.filter(c => c.example).map(c => c.id));
+      S.loans = S.loans.filter(l => !l.example && !exIds.has(l.clientId));
+      S.clients = S.clients.filter(c => !c.example);
+      closeSheet(); commit('Ejemplos borrados'); break;
+    }
+    case 'wipe': DOCS = []; DB.replace([]); S = defaults(); S.settings.rates = {A:6,B:9,C:12}; closeSheet(); commit('Se borró todo'); break;
+    case 'export-file': {
+      buildExport().then(data => {
+        if(!data) return;
+        try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type:'application/json'})); a.download = 'libreta-prestamos-' + today() + '.json'; document.body.appendChild(a); a.click(); a.remove(); toast('Si no se descargó, usá "Copiar".'); }
+        catch(err){ toast('No se pudo descargar. Usá "Copiar".'); }
+      });
+      break;
+    }
+    case 'export-copy': buildExport().then(data => { if(data) copyText(data, 'Copia copiada. Guardala en una nota.'); }); break;
+    case 'import-text': stageImport($('#imp-text').value); break;
+    case 'import-decrypt': {
+      const pass = $('#imp-pass').value, obj = UI.encImport; if(!obj) break;
+      decryptBackup(obj, pass).then(txt => { UI.encImport = null; stageImport(txt); }, () => toast('Contraseña incorrecta.'));
+      break;
+    }
+    case 'import-confirm': {
+      const d = UI.pendingImport; if(!d) break;
+      S = {settings:d.settings, clients:d.clients, loans:d.loans, caja:d.caja};
+      if(Array.isArray(d.docs)){ DOCS = d.docs; DB.replace(DOCS); }
+      UI.pendingImport = null; commit('Copia restaurada'); break;
+    }
+  }
+});
+
+document.addEventListener('input', e => {
+  const t = e.target;
+  if(t.id === 'q'){ UI.q = t.value; const pos = t.selectionStart; render(); const n = $('#q'); n.focus(); try { n.setSelectionRange(pos, pos); } catch(err){} return; }
+  if(t.dataset.rate){ const v = Number(t.value); if(v >= 0 && v <= 100 && t.value !== ''){ S.settings.rates[t.dataset.rate] = v; save(); $('#tea-' + t.dataset.rate).textContent = 'Equivale a ' + pct(Math.round(tea(v))) + ' anual (TEA)'; } return; }
+  if(t.closest('form[data-form="loan"]')) updatePreview();
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if(t.id === 'nl-client' || t.id === 'cl-c_cat'){
+    const f = t.form, isNew = f.client.value === '__new';
+    $('#nl-newclient').hidden = !isNew;
+    f.rate.value = defaultRate(curCat(f), f.freq.value);
+    UI.sheet.clientId = isNew ? null : f.client.value;
+    updatePreview();
+    if(t.id === 'nl-client' && isNew) f.elements.c_name.focus();
+  }
+  if(t.id === 'nl-freq'){
+    const f = t.form, fq = t.value;
+    f.rate.value = defaultRate(curCat(f), fq);
+    $('#nl-rate-lbl').textContent = 'Tasa ' + PER[fq].word + ' (%)';
+    f.first.value = fq === 'semanal' ? addDays(today(), 7) : addMonths(today(), 1);
+    updatePreview();
+  }
+  if(t.id === 'lock-after'){ S.settings.lockAfter = Number(t.value); save(); toast('Guardado'); }
+  if(t.id === 'doc-relink'){ const d = DOCS.find(x => x.id === t.dataset.id); d.loanId = t.value || null; DB.put(d); toast('Guardado'); }
+  if(t.id === 'doc-file' && t.files.length){
+    const files = [...t.files], clientId = UI.sheet.id, loanId = $('#doc-loan').value || null;
+    toast('Cargando ' + files.length + ' foto' + (files.length === 1 ? '' : 's') + '…');
+    (async () => {
+      let ok = 0;
+      for(const f of files){
+        try { const data = await compressImage(f); const d = {id:uid(), clientId, loanId, date:today(), name:f.name, data}; DOCS.push(d); await DB.put(d); ok++; }
+        catch(err){}
+      }
+      if(UI.sheet && UI.sheet.type === 'client' && UI.sheet.id === clientId){ UI.sheet.loanId = loanId; }
+      render();
+      toast(ok === files.length ? (ok === 1 ? 'Pagaré guardado' : ok + ' pagarés guardados') : 'Algunas fotos no se pudieron leer. Probá con JPG o PNG.');
+    })();
+  }
+  if(t.id === 'imp-file' && t.files[0]){ const rd = new FileReader(); rd.onload = () => stageImport(String(rd.result)); rd.readAsText(t.files[0]); }
+});
+document.addEventListener('submit', e => {
+  const f = e.target; e.preventDefault();
+  if(f.dataset.form === 'unlock'){ tryUnlock(f); return; }
+  if(f.dataset.form === 'pin'){ pinForm(f); return; }
+  const err = (id, msg) => { const p = $(id); p.textContent = msg; p.hidden = false; };
+  if(f.dataset.form === 'loan'){
+    const a = Number(f.amount.value), n = parseInt(f.n.value, 10), r = Number(f.rate.value);
+    if(!(a > 0)) return err('#nl-err', 'Poné el monto prestado.');
+    if(!(n >= 1 && n <= 120)) return err('#nl-err', 'La cantidad de cuotas tiene que ser entre 1 y 120.');
+    const byTotal = UI.calcMode === 'total', tot = Number(f.total.value);
+    if(byTotal && !(tot > 0)) return err('#nl-err', 'Poné cuánto querés que te devuelva en total.');
+    if(byTotal && tot < a) return err('#nl-err', 'El total a devolver no puede ser menor a lo que prestás.');
+    if(!byTotal && (!(r >= 0 && r <= 100) || f.rate.value === '')) return err('#nl-err', 'Poné una tasa entre 0 y 100.');
+    if(!f.first.value) return err('#nl-err', 'Elegí la fecha de la primera cuota.');
+    let clientId = f.client.value;
+    if(clientId === '__new'){
+      const nc = clientFields(f, 'c_');
+      if(!nc.name){ f.elements.c_name.focus(); return err('#nl-err', 'Poné el nombre y apellido del cliente nuevo.'); }
+      const dni = (nc.dni || '').replace(/\D/g, '');
+      const dup = dni && S.clients.find(c => (c.dni || '').replace(/\D/g, '') === dni);
+      if(dup) return err('#nl-err', 'Ya tenés un cliente con ese DNI: ' + dup.name + '. Elegilo en la lista de clientes.');
+      const c = {id:uid(), ...nc}; S.clients.push(c); clientId = c.id;
+    }
+    const l = {id:uid(), clientId, amount:r2(a), n, rate:r, first:f.first.value, created:today(), notes:f.notes.value.trim(), fromCaja:f.fromCaja.checked, freq:f.freq.value, cuotas:buildSchedule(r2(a), n, r, f.first.value, f.freq.value)};
+    if(byTotal){ const res = scheduleByTotal(r2(a), n, r2(tot), f.first.value, f.freq.value); l.cuotas = res.cuotas; l.rate = res.rate; l.mode = 'total'; }
+    S.loans.push(l); save(); UI.sheet = {type:'loan', id:l.id}; render(); toast('Préstamo guardado');
+  }
+  if(f.dataset.form === 'client'){
+    const name = f.name.value.trim();
+    if(!name) return err('#cl-err', 'Poné el nombre del cliente.');
+    const s = UI.sheet;
+    if(s.id){ const c = S.clients.find(x => x.id === s.id); Object.assign(c, {...clientFields(f), name}); delete c.example; commit('Cliente guardado'); }
+    else { const c = {id:uid(), ...clientFields(f), name}; S.clients.push(c); save(); UI.sheet = s.returnTo === 'new-loan' ? {type:'new-loan', clientId:c.id} : {type:'client', id:c.id}; render(); toast('Cliente guardado'); }
+  }
+  if(f.dataset.form === 'pay'){
+    const a = Number(f.amount.value);
+    if(!(a > 0)) return err('#py-err', 'Poné el monto que cobraste.');
+    if(!f.date.value) return err('#py-err', 'Elegí la fecha del cobro.');
+    const s = UI.sheet, l = loan(s.id), left = applyPayment(l, s.i, a, f.date.value);
+    save(); UI.sheet = {type:'loan', id:l.id}; render();
+    toast(left > 0.5 ? 'Cobro registrado. Sobraron ' + money(left) + ' (el préstamo ya está pago).' : 'Cobro registrado');
+  }
+});
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && UI.sheet) closeSheet(); });
+
+document.addEventListener('visibilitychange', () => {
+  if(!getPin() || UI.locked) return;
+  const after = S.settings.lockAfter ?? 60;
+  if(document.hidden){ UI.hiddenAt = Date.now(); if(after === 0) lockApp(); }
+  else if(UI.hiddenAt && Date.now() - UI.hiddenAt >= after * 1000) lockApp();
+});
+
+if(UI.locked){ UI.locked = false; lockApp(); } else render();
+DB.all().then(list => { DOCS = list; render(); });
+})();
+</script>
+
+<script>if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js");</script>
