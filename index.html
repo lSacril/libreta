@@ -223,6 +223,9 @@ tr.is-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
 .lock-box .btn{width:100%;padding:12px}
 .lock-err{color:var(--bad);font-size:14px;min-height:1.4em;margin:0}
 .lock-forgot{display:flex;flex-direction:column;gap:10px;text-align:left}
+.lock{overflow:auto}
+.lock-box #rec-key{font-size:15px;letter-spacing:.04em;text-align:left;font-family:var(--f-num)}
+.reckey{font-size:19px;font-weight:700;letter-spacing:.05em;padding:14px;border:2px dashed var(--accent);border-radius:10px;background:var(--paper);color:var(--ink);word-break:break-all;user-select:all;text-align:center}
 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 8px 30px rgba(0,0,0,.25)}
 @media (min-width:761px){#toast{bottom:24px}}
@@ -242,20 +245,7 @@ tr.is-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
   <main id="view" class="view"></main>
 </div>
 <div id="sheet" class="sheet-wrap" hidden><div class="sheet" role="dialog" aria-modal="true" id="sheetBox"></div></div>
-<div id="lock" class="lock" hidden>
-  <form class="lock-box" data-form="unlock" novalidate>
-    <h1>Libreta</h1>
-    <label for="lock-pin" class="muted">Ingresá tu PIN</label>
-    <input id="lock-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" aria-label="PIN">
-    <p class="lock-err" id="lock-err" role="alert"></p>
-    <button class="btn primary" type="submit">Entrar</button>
-    <button class="btn link" type="button" data-act="forgot">Olvidé mi PIN</button>
-    <div class="lock-forgot" id="lock-forgot" hidden>
-      <p class="note">El PIN no se puede recuperar. La única forma de volver a entrar es borrar todos los datos de la app en este dispositivo. Si tenés una copia de seguridad, después la podés restaurar.</p>
-      <button class="btn danger" type="button" data-act="forgot-wipe" data-confirm="Tocá de nuevo: se borra todo">Borrar todo y empezar de nuevo</button>
-    </div>
-  </form>
-</div>
+<div id="lock" class="lock" hidden></div>
 <div id="toast" role="status" hidden></div>
 
 <script>
@@ -378,20 +368,37 @@ function seed(){
   s.loans.push(l1, l2, l3);
   return s;
 }
-function load(){
+function rawLoad(){
   try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; }
   catch(e){ storageOK = false; return null; }
 }
-function save(){
-  try { localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; }
-  catch(e){ storageOK = false; }
-}
 function valid(d){ return d && typeof d === 'object' && Array.isArray(d.clients) && Array.isArray(d.loans); }
-let S = load();
-if(!valid(S)){ S = seed(); save(); }
-S.settings = S.settings || defaults().settings;
-S.settings.rates = Object.assign({A:6,B:9,C:12}, S.settings.rates);
-S.caja = Array.isArray(S.caja) ? S.caja : [];
+function normalize(s){
+  s.settings = s.settings || defaults().settings;
+  s.settings.rates = Object.assign({A:6,B:9,C:12}, s.settings.rates);
+  s.caja = Array.isArray(s.caja) ? s.caja : [];
+  return s;
+}
+/* Los datos se cargan recién al desbloquear. DK es la clave de cifrado y solo vive en memoria mientras la app está abierta. */
+let S = null;
+let DK = null;
+const CAN_ENCRYPT = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
+let saveChain = Promise.resolve();
+function save(){
+  if(!S) return saveChain;
+  const snapshot = JSON.stringify(S);
+  if(!CAN_ENCRYPT){
+    try { localStorage.setItem(KEY, snapshot); storageOK = true; } catch(e){ storageOK = false; }
+    return saveChain;
+  }
+  const key = DK;
+  if(!key) return saveChain; // nunca se guarda sin cifrar
+  saveChain = saveChain.then(async () => {
+    try { const o = await encWith(key, snapshot); localStorage.setItem(KEY, JSON.stringify({enc:2, iv:o.iv, ct:o.ct})); storageOK = true; }
+    catch(e){ storageOK = false; }
+  });
+  return saveChain;
+}
 
 /* Capital: lo que cargás a mano, menos lo que prestaste "de tu capital", más lo que cobraste de esos préstamos */
 function capitalNow(){
@@ -415,72 +422,212 @@ function capitalHtml(){
 
 const UI ={tab:'resumen', filter:'activos', q:'', sheet:null, pendingImport:null};
 try { const t = localStorage.getItem(KEY + ':tab'); if(t) UI.tab = t; } catch(e){}
-/* ---------- PIN ---------- */
-const PIN_KEY = KEY + ':pin';
+/* ---------- PIN y cifrado ----------
+   Los datos se cifran con una clave aleatoria (AES-256). Esa clave se guarda "envuelta" dos veces:
+   una con el PIN y otra con la llave de recuperación. Sin alguno de los dos, los datos no se pueden leer. */
+const PIN_KEY = KEY + ':pin';   // PIN de versiones viejas (sin cifrado), solo para migrar
+const KEYS_KEY = KEY + ':keys';
+const FAIL_KEY = KEY + ':pinfails';
+const PIN_ITER = 600000, REC_ITER = 200000;
 function getPin(){ try { return JSON.parse(localStorage.getItem(PIN_KEY)); } catch(e){ return null; } }
 async function hashPin(pin, salt){
-  const txt = salt + ':' + pin;
-  try {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch(e){
-    let h = 2166136261; for(let k = 0; k < 5000; k++){ for(let j = 0; j < txt.length; j++){ h ^= txt.charCodeAt(j); h = Math.imul(h, 16777619) >>> 0; } }
-    return 'f' + h.toString(16);
-  }
-}
-async function setPin(pin){
-  const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const data = {salt, hash:await hashPin(pin, salt)};
-  try { localStorage.setItem(PIN_KEY, JSON.stringify(data)); return true; } catch(e){ return false; }
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pin));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 async function checkPin(pin){ const p = getPin(); return !!p && (await hashPin(pin, p.salt)) === p.hash; }
+function getKeys(){ try { const k = JSON.parse(localStorage.getItem(KEYS_KEY)); return k && k.v === 1 && k.pin && k.rec ? k : null; } catch(e){ return null; } }
+function setKeys(k){ localStorage.setItem(KEYS_KEY, JSON.stringify(k)); }
+async function kekFrom(secret, salt, iter){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+}
+async function wrapDK(raw, secret, iter){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await kekFrom(secret, salt, iter), raw);
+  return {salt:b64(salt), iv:b64(iv), ct:b64(ct), iter};
+}
+async function unwrapDK(w, secret){
+  return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(w.iv)}, await kekFrom(secret, unb64(w.salt), w.iter), unb64(w.ct)));
+}
+async function encWith(key, text){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, new TextEncoder().encode(text));
+  return {iv:b64(iv), ct:b64(ct)};
+}
+async function decWith(key, o){ return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM', iv:unb64(o.iv)}, key, unb64(o.ct))); }
+const REC_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newRecoveryKey(){
+  const b = crypto.getRandomValues(new Uint8Array(24)); let s = '';
+  for(let i = 0; i < 24; i++){ s += REC_ABC[b[i] % 32]; if(i % 4 === 3 && i < 23) s += '-'; }
+  return s;
+}
+const normRec = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const validPin = p => /^\d{6,8}$/.test(p) && !/^(\d)\1+$/.test(p) && !'0123456789'.includes(p) && !'9876543210'.includes(p);
-UI.locked = !!getPin(); UI.fails = 0; UI.blockedUntil = 0; UI.hiddenAt = 0;
-function lockApp(){
-  if(!getPin()) return;
-  UI.locked = true; closeSheet();
-  $('#view').innerHTML = ''; $('#banner').innerHTML = '';
+const PIN_RULE = 'El PIN tiene que tener de 6 a 8 números y no puede ser fácil de adivinar (como 111111 o 123456).';
+async function sealDoc(d){ if(!DK) return d; const o = await encWith(DK, JSON.stringify(d)); return {id:d.id, enc:2, iv:o.iv, ct:o.ct}; }
+async function openDoc(r){
+  if(r && r.enc === 2){ if(!DK) return null; try { return JSON.parse(await decWith(DK, r)); } catch(e){ return null; } }
+  return r;
+}
+
+UI.locked = true; UI.hiddenAt = 0;
+function showLock(html){
+  UI.locked = true;
   document.querySelector('.app').hidden = true;
-  $('#lock').hidden = false; $('#lock-forgot').hidden = true; $('#lock-err').textContent = '';
-  const i = $('#lock-pin'); i.value = ''; setTimeout(() => i.focus(), 30);
+  const l = $('#lock'); l.innerHTML = html; l.hidden = false; l.scrollTop = 0;
+  setTimeout(() => { const i = l.querySelector('input'); if(i) i.focus(); }, 30);
+}
+const lockErr = msg => { const p = $('#lock-err'); if(p) p.textContent = msg; };
+const pinInput = (name, label) => `<input name="${name}" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="${label}" aria-label="${label}">`;
+function screenUnlock(){
+  const keys = getKeys();
+  showLock(`<form class="lock-box" data-form="unlock" novalidate>
+    <h1>Libreta</h1>
+    <span class="muted">Ingresá tu PIN</span>
+    ${pinInput('pin', 'PIN')}
+    <p class="lock-err" id="lock-err" role="alert"></p>
+    <button class="btn primary" type="submit">Entrar</button>
+    <button class="btn link" type="button" data-act="forgot">Olvidé mi PIN</button>
+    <div class="lock-forgot" id="lock-forgot" hidden>
+      ${keys ? `<p class="note">Entrá con tu llave de recuperación y después creá un PIN nuevo.</p>
+      <input id="rec-key" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" aria-label="Llave de recuperación">
+      <button class="btn" type="button" data-act="use-recovery">Entrar con la llave</button>
+      <p class="note">Si tampoco tenés la llave, la única salida es borrar todo. Después podés restaurar una copia de seguridad.</p>`
+      : `<p class="note">El PIN no se puede recuperar. La única salida es borrar los datos de este dispositivo. Después podés restaurar una copia de seguridad.</p>`}
+      <button class="btn danger" type="button" data-act="forgot-wipe" data-confirm="Tocá de nuevo: se borra todo">Borrar todo y empezar de nuevo</button>
+    </div>
+  </form>`);
+}
+function screenSetup(mode){
+  const txt = mode === 'reset' ? 'Entraste con la llave de recuperación. Ahora creá un PIN nuevo.'
+    : mode === 'legacy' ? 'Nueva protección: tus datos se van a guardar cifrados con tu PIN. Creá el PIN (puede ser el mismo de antes si tiene 6 números o más).'
+    : 'Creá un PIN para proteger la app. Con él se cifran todos tus datos en este dispositivo.';
+  showLock(`<form class="lock-box" data-form="${mode === 'reset' ? 'newpin' : 'setup'}" novalidate>
+    <h1>Libreta</h1>
+    <p class="note" style="text-align:left;margin:0">${txt}</p>
+    ${pinInput('pin', 'PIN nuevo (6 a 8 números)')}
+    ${pinInput('rep', 'Repetí el PIN')}
+    <p class="lock-err" id="lock-err" role="alert"></p>
+    <button class="btn primary" type="submit">Crear PIN</button>
+  </form>`);
+}
+function screenRecovery(rec){
+  UI.showRec = rec;
+  showLock(`<div class="lock-box">
+    <h1>Libreta</h1>
+    <h2 style="margin:0;font-size:20px">Tu llave de recuperación</h2>
+    <p class="note" style="text-align:left;margin:0">Si olvidás el PIN, con esta llave volvés a entrar. <b>Anotala en papel</b> y guardala en un lugar seguro. No la guardes en este mismo celular ni la mandes por chat: quien la tenga puede abrir tus datos. No se vuelve a mostrar.</p>
+    <div class="reckey num">${esc(rec)}</div>
+    <button class="btn" type="button" data-act="copy-rec">Copiar llave</button>
+    <label class="check" style="justify-content:center"><input type="checkbox" id="rec-ack"> Ya la anoté en un lugar seguro</label>
+    <p class="lock-err" id="lock-err" role="alert"></p>
+    <button class="btn primary" type="button" data-act="rec-done">Entrar a la app</button>
+  </div>`);
+}
+/* Abre los datos con la clave. Si encuentra datos viejos sin cifrar, los cifra en el momento. */
+async function openData(raw){
+  DK = await crypto.subtle.importKey('raw', raw, {name:'AES-GCM'}, false, ['encrypt', 'decrypt']);
+  const blob = rawLoad();
+  let migrate = false;
+  if(blob && blob.enc === 2) S = normalize(JSON.parse(await decWith(DK, blob)));
+  else { S = normalize(valid(blob) ? blob : (UI.startEmpty ? defaults() : seed())); migrate = true; }
+  const recs = await DB.all();
+  DOCS = (await Promise.all(recs.map(openDoc))).filter(Boolean);
+  if(migrate || recs.some(r => r && r.enc !== 2)){ await save(); await DB.replace(DOCS); }
 }
 function unlockApp(){
-  UI.locked = false; UI.fails = 0;
-  $('#lock').hidden = true; document.querySelector('.app').hidden = false;
+  UI.locked = false;
+  const l = $('#lock'); l.hidden = true; l.innerHTML = '';
+  document.querySelector('.app').hidden = false;
   render();
 }
+async function lockApp(){
+  if(!getKeys() || UI.locked) return;
+  UI.locked = true; closeSheet();
+  $('#view').innerHTML = ''; $('#banner').innerHTML = '';
+  screenUnlock();
+  await saveChain;
+  S = null; DOCS = []; DK = null;
+}
 /* Intentos fallidos guardados: recargar la página no reinicia la espera, y cada 5 fallos la espera se duplica (hasta 1 hora) */
-const FAIL_KEY = KEY + ':pinfails';
 function failState(){ try { const s = JSON.parse(localStorage.getItem(FAIL_KEY)); return s && typeof s.n === 'number' ? s : {n:0, until:0}; } catch(e){ return {n:0, until:0}; } }
 function setFail(s){ try { localStorage.setItem(FAIL_KEY, JSON.stringify(s)); } catch(e){} }
 const waitText = ms => { const s = Math.ceil(ms / 1000); return s >= 120 ? Math.ceil(s / 60) + ' minutos' : s + ' segundos'; };
 async function tryUnlock(f){
-  const errEl = $('#lock-err'), pin = f.pin.value.trim(), fs = failState();
-  if(Date.now() < fs.until){ errEl.textContent = 'Demasiados intentos. Esperá ' + waitText(fs.until - Date.now()) + '.'; f.pin.value = ''; return; }
-  if(!pin){ errEl.textContent = 'Ingresá tu PIN.'; return; }
-  if(await checkPin(pin)){ setFail({n:0, until:0}); unlockApp(); return; }
+  const pin = f.pin.value.trim(), fs = failState();
+  if(Date.now() < fs.until){ f.pin.value = ''; return lockErr('Demasiados intentos. Esperá ' + waitText(fs.until - Date.now()) + '.'); }
+  if(!pin) return lockErr('Ingresá tu PIN.');
+  lockErr('Abriendo…');
+  const keys = getKeys();
+  if(keys){
+    let raw = null;
+    try { raw = await unwrapDK(keys.pin, pin); } catch(e){}
+    if(raw){
+      setFail({n:0, until:0});
+      try { await openData(raw); unlockApp(); } catch(e){ lockErr('No se pudieron abrir los datos de este dispositivo.'); }
+      return;
+    }
+  } else if(getPin() && await checkPin(pin)){ setFail({n:0, until:0}); screenSetup('legacy'); return; }
   fs.n++; f.pin.value = '';
   if(fs.n % 5 === 0){
     const ms = Math.min(3600000, 30000 * Math.pow(2, fs.n / 5 - 1));
     fs.until = Date.now() + ms;
-    errEl.textContent = 'PIN incorrecto. Esperá ' + waitText(ms) + ' para volver a probar.';
-  } else errEl.textContent = 'PIN incorrecto. Te quedan ' + (5 - fs.n % 5) + ' intentos antes de tener que esperar.';
+    lockErr('PIN incorrecto. Esperá ' + waitText(ms) + ' para volver a probar.');
+  } else lockErr('PIN incorrecto. Te quedan ' + (5 - fs.n % 5) + ' intentos antes de tener que esperar.');
   setFail(fs);
+}
+async function createPin(f){
+  const pin = f.pin.value.trim(), rep = f.rep.value.trim();
+  if(!validPin(pin)) return lockErr(PIN_RULE);
+  if(pin !== rep) return lockErr('Los dos PIN no coinciden.');
+  lockErr('Protegiendo tus datos…');
+  try {
+    const raw = crypto.getRandomValues(new Uint8Array(32)), rec = newRecoveryKey();
+    setKeys({v:1, pin:await wrapDK(raw, pin, PIN_ITER), rec:await wrapDK(raw, normRec(rec), REC_ITER)});
+    await openData(raw);
+    try { localStorage.removeItem(PIN_KEY); } catch(e){}
+    UI.startEmpty = false;
+    screenRecovery(rec);
+  } catch(e){ lockErr('No se pudo crear el PIN en este navegador.'); }
+}
+async function resetPin(f){
+  const pin = f.pin.value.trim(), rep = f.rep.value.trim();
+  if(!validPin(pin)) return lockErr(PIN_RULE);
+  if(pin !== rep) return lockErr('Los dos PIN no coinciden.');
+  const keys = getKeys(); if(!keys || !UI.pendingRaw) return screenUnlock();
+  keys.pin = await wrapDK(UI.pendingRaw, pin, PIN_ITER); setKeys(keys);
+  UI.pendingRaw = null; setFail({n:0, until:0});
+  unlockApp(); toast('PIN nuevo creado');
+}
+async function useRecovery(){
+  const keys = getKeys(), v = normRec(($('#rec-key') || {}).value);
+  if(!keys) return;
+  if(v.length !== 24) return lockErr('La llave tiene 24 letras y números (los guiones no importan).');
+  lockErr('Comprobando la llave…');
+  let raw = null;
+  try { raw = await unwrapDK(keys.rec, v); } catch(e){ return lockErr('La llave no es correcta.'); }
+  try { await openData(raw); } catch(e){ return lockErr('No se pudieron abrir los datos de este dispositivo.'); }
+  UI.pendingRaw = raw; screenSetup('reset');
 }
 async function pinForm(f){
   const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
-  const has = !!getPin(), nw = f.newpin.value.trim(), rep = f.reppin.value.trim();
-  if(has && !(await checkPin(f.curpin.value.trim()))) return err('El PIN actual no es correcto.');
-  if(!validPin(nw)) return err('El PIN nuevo tiene que tener de 6 a 8 números y no puede ser fácil de adivinar (como 111111 o 123456).');
+  const keys = getKeys(); if(!keys) return;
+  let raw;
+  try { raw = await unwrapDK(keys.pin, f.curpin.value.trim()); } catch(e){ return err('El PIN actual no es correcto.'); }
+  const nw = f.newpin.value.trim(), rep = f.reppin.value.trim();
+  if(!validPin(nw)) return err(PIN_RULE);
   if(nw !== rep) return err('Los dos PIN nuevos no coinciden.');
-  if(!(await setPin(nw))) return err('No se pudo guardar el PIN en este navegador.');
-  render(); toast(has ? 'PIN cambiado' : 'PIN activado. Se va a pedir al abrir la app.');
+  keys.pin = await wrapDK(raw, nw, PIN_ITER); setKeys(keys);
+  render(); toast('PIN cambiado');
 }
-async function removePin(){
+async function newRecovery(){
   const err = msg => { const p = $('#pin-err'); p.textContent = msg; p.hidden = false; };
-  if(!(await checkPin($('#pin-cur').value.trim()))) return err('Para quitar el PIN, escribí el PIN actual.');
-  try { localStorage.removeItem(PIN_KEY); } catch(e){}
-  render(); toast('PIN quitado');
+  const keys = getKeys(); if(!keys) return;
+  let raw;
+  try { raw = await unwrapDK(keys.pin, ($('#pin-cur') || {}).value.trim()); } catch(e){ return err('Para generar una llave nueva, escribí tu PIN actual en "PIN actual".'); }
+  const rec = newRecoveryKey();
+  keys.rec = await wrapDK(raw, normRec(rec), REC_ITER); setKeys(keys);
+  openSheet({type:'rec', rec});
 }
 
 UI.calcMode = 'total';
@@ -506,9 +653,9 @@ const DB = (() => {
     return new Promise((res, rej) => { const t = db.transaction('docs', mode); const req = fn(t.objectStore('docs')); t.oncomplete = () => res(req ? req.result : undefined); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
   }
   api.all = async () => { try { return (await tx('readonly', s => s.getAll())) || []; } catch(e){ api.ok = false; return [...mem.values()]; } };
-  api.put = async d => { try { await tx('readwrite', s => s.put(d)); } catch(e){ api.ok = false; mem.set(d.id, d); render(); } };
+  api.put = async d => { const rec = await sealDoc(d); try { await tx('readwrite', s => s.put(rec)); } catch(e){ api.ok = false; mem.set(d.id, rec); render(); } };
   api.del = async id => { mem.delete(id); try { await tx('readwrite', s => s.delete(id)); } catch(e){} };
-  api.replace = async list => { mem.clear(); try { await tx('readwrite', s => { s.clear(); list.forEach(d => s.put(d)); }); } catch(e){ api.ok = false; list.forEach(d => mem.set(d.id, d)); render(); } };
+  api.replace = async list => { mem.clear(); const recs = await Promise.all(list.map(sealDoc)); try { await tx('readwrite', s => { s.clear(); recs.forEach(d => s.put(d)); }); } catch(e){ api.ok = false; recs.forEach(d => mem.set(d.id, d)); render(); } };
   return api;
 })();
 function compressImage(file){
@@ -663,19 +810,20 @@ function vAjustes(){
     <p class="note"><b>Para tener en cuenta:</b> en Argentina no hay una tasa máxima fija para préstamos entre particulares, pero un juez puede reducir intereses que considere desproporcionados (art. 771 del Código Civil y Comercial), comparándolos con las tasas bancarias del momento. Mirá siempre la TEA: es lo que el préstamo cuesta en un año.</p>
   </section>
   <section class="panel">
-    <h3>PIN de acceso</h3>
-    ${getPin() ? `<p class="note">La app está protegida con PIN. Se pide al abrirla y cuando volvés después de un rato.</p>` : `<p class="note">Poné un PIN para que nadie pueda abrir la app sin él.</p>`}
+    <h3>PIN y cifrado</h3>
+    ${CAN_ENCRYPT ? `<p class="note">Tus datos están cifrados en este dispositivo. Para abrirlos hace falta el PIN o la llave de recuperación.</p>
     <form data-form="pin" novalidate>
       <div class="grid2">
-        ${getPin() ? `<div class="field" style="grid-column:1/-1"><label for="pin-cur">PIN actual</label><input id="pin-cur" name="curpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>` : ''}
-        <div class="field"><label for="pin-new">${getPin() ? 'PIN nuevo' : 'PIN'} (6 a 8 números)</label><input id="pin-new" name="newpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
-        <div class="field"><label for="pin-rep">Repetí el PIN</label><input id="pin-rep" name="reppin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+        <div class="field" style="grid-column:1/-1"><label for="pin-cur">PIN actual</label><input id="pin-cur" name="curpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+        <div class="field"><label for="pin-new">PIN nuevo (6 a 8 números)</label><input id="pin-new" name="newpin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+        <div class="field"><label for="pin-rep">Repetí el PIN nuevo</label><input id="pin-rep" name="reppin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
       </div>
       <p class="note small" id="pin-err" style="color:var(--bad);margin:0" hidden></p>
-      <div class="toolbar"><button class="btn primary" type="submit">${getPin() ? 'Cambiar PIN' : 'Activar PIN'}</button>${getPin() ? '<button class="btn" type="button" data-act="pin-remove">Quitar PIN</button><button class="btn" type="button" data-act="lock-now">Bloquear ahora</button>' : ''}</div>
+      <div class="toolbar"><button class="btn primary" type="submit">Cambiar PIN</button><button class="btn" type="button" data-act="new-rec">Generar llave de recuperación nueva</button><button class="btn" type="button" data-act="lock-now">Bloquear ahora</button></div>
     </form>
-    ${getPin() ? `<div class="field"><label for="lock-after">Bloquear cuando salís de la app</label><select id="lock-after">${[[0,'Enseguida'],[60,'Después de 1 minuto'],[300,'Después de 5 minutos'],[900,'Después de 15 minutos']].map(([v,t]) => `<option value="${v}" ${(S.settings.lockAfter ?? 60) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>` : ''}
-    <p class="note small">El PIN evita que otra persona abra la app en tu celular o tu PC. Si lo olvidás no se puede recuperar: solo se puede entrar borrando los datos, así que hacé copias de seguridad. El PIN no viaja en la copia de seguridad.</p>
+    <div class="field"><label for="lock-after">Bloquear cuando salís de la app</label><select id="lock-after">${[[0,'Enseguida'],[60,'Después de 1 minuto'],[300,'Después de 5 minutos'],[900,'Después de 15 minutos']].map(([v,t]) => `<option value="${v}" ${(S.settings.lockAfter ?? 60) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <p class="note small">Si perdiste la llave de recuperación, generá una nueva: la anterior deja de servir. El PIN y la llave no viajan en la copia de seguridad.</p>`
+    : `<p class="note">Este navegador no permite cifrar los datos. Abrí la app desde https://lsacril.github.io/libreta para usar PIN y cifrado.</p>`}
   </section>
   <section class="panel">
     <h3>Copia de seguridad</h3>
@@ -701,8 +849,8 @@ function vAjustes(){
 
 const VIEWS = {resumen:vResumen, prestamos:vPrestamos, clientes:vClientes, ajustes:vAjustes};
 function render(){
-  if(UI.locked) return;
-  $('#lockBtn').hidden = !getPin();
+  if(UI.locked || !S) return;
+  $('#lockBtn').hidden = !getKeys();
   $('#hoy').textContent = 'hoy ' + fdate(today());
   const ex = S.clients.some(c => c.example) || S.loans.some(l => l.example);
   let b = '';
@@ -835,6 +983,12 @@ function renderSheet(){
       <div class="facts" style="grid-template-columns:minmax(0,1fr)"><div><dt>Capital disponible</dt><dd>${money(capitalNow())}</dd></div></div>
       <p class="note">Lo que sumás o restás a mano, más los préstamos que marcaste como "Descontar de mi capital" y los cobros de esos préstamos, que se anotan solos.</p>
       <div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th class="r">Monto</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">Todavía no hay movimientos.</td></tr>'}</tbody></table></div>`);
+  }
+  else if(s.type === 'rec'){
+    box.innerHTML = sheetFrame('Llave de recuperación nueva', `
+      <p class="note">Anotala en papel y guardala en un lugar seguro. La llave anterior ya no sirve. Esta no se vuelve a mostrar.</p>
+      <div class="reckey num">${esc(s.rec)}</div>
+      <div class="toolbar"><button class="btn" type="button" data-act="copy-rec">Copiar llave</button><button class="btn primary" type="button" data-act="close">Ya la anoté</button></div>`);
   }
   else if(s.type === 'pay'){
     const l = loan(s.id); if(!l){ closeSheet(); return; }
@@ -988,12 +1142,15 @@ document.addEventListener('click', e => {
     }
     case 'open-caja': openSheet({type:'caja'}); break;
     case 'lock-now': lockApp(); break;
-    case 'pin-remove': removePin(); break;
+    case 'new-rec': newRecovery(); break;
+    case 'use-recovery': useRecovery(); break;
+    case 'copy-rec': copyText(UI.showRec || (UI.sheet && UI.sheet.rec) || '', 'Llave copiada'); break;
+    case 'rec-done': if(!$('#rec-ack').checked){ lockErr('Marcá que ya la anotaste.'); break; } UI.showRec = null; unlockApp(); break;
     case 'forgot': $('#lock-forgot').hidden = !$('#lock-forgot').hidden; break;
     case 'forgot-wipe': {
-      try { localStorage.removeItem(PIN_KEY); localStorage.removeItem(FAIL_KEY); localStorage.removeItem(KEY); } catch(err){}
-      DOCS = []; DB.replace([]); S = defaults(); save();
-      unlockApp(); toast('Se borró todo. Podés restaurar una copia desde Ajustes.'); break;
+      try { [KEY, KEYS_KEY, PIN_KEY, FAIL_KEY].forEach(k => localStorage.removeItem(k)); } catch(err){}
+      DK = null; S = null; DOCS = []; DB.replace([]);
+      UI.startEmpty = true; screenSetup('new'); break;
     }
     case 'calc-mode': {
       UI.calcMode = el.dataset.mode;
@@ -1089,6 +1246,8 @@ document.addEventListener('change', e => {
 document.addEventListener('submit', e => {
   const f = e.target; e.preventDefault();
   if(f.dataset.form === 'unlock'){ tryUnlock(f); return; }
+  if(f.dataset.form === 'setup'){ createPin(f); return; }
+  if(f.dataset.form === 'newpin'){ resetPin(f); return; }
   if(f.dataset.form === 'pin'){ pinForm(f); return; }
   const err = (id, msg) => { const p = $(id); p.textContent = msg; p.hidden = false; };
   if(f.dataset.form === 'loan'){
@@ -1132,14 +1291,22 @@ document.addEventListener('submit', e => {
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && UI.sheet) closeSheet(); });
 
 document.addEventListener('visibilitychange', () => {
-  if(!getPin() || UI.locked) return;
+  if(!getKeys() || UI.locked || !S) return;
   const after = S.settings.lockAfter ?? 60;
   if(document.hidden){ UI.hiddenAt = Date.now(); if(after === 0) lockApp(); }
   else if(UI.hiddenAt && Date.now() - UI.hiddenAt >= after * 1000) lockApp();
 });
 
-if(UI.locked){ UI.locked = false; lockApp(); } else render();
-DB.all().then(list => { DOCS = list; render(); });
+(async () => {
+  if(!CAN_ENCRYPT){
+    const blob = rawLoad();
+    S = normalize(valid(blob) ? blob : seed()); save();
+    DOCS = await DB.all();
+    unlockApp();
+    return;
+  }
+  if(getKeys() || getPin()) screenUnlock(); else screenSetup('new');
+})();
 })();
 </script>
 
