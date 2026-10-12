@@ -518,7 +518,6 @@ function screenRecovery(rec){
     <h2 style="margin:0;font-size:20px">Tu llave de recuperación</h2>
     <p class="note" style="text-align:left;margin:0">Si olvidás el PIN, con esta llave volvés a entrar. <b>Anotala en papel</b> y guardala en un lugar seguro. No la guardes en este mismo celular ni la mandes por chat: quien la tenga puede abrir tus datos. No se vuelve a mostrar.</p>
     <div class="reckey num">${esc(rec)}</div>
-    <button class="btn" type="button" data-act="copy-rec">Copiar llave</button>
     <label class="check" style="justify-content:center"><input type="checkbox" id="rec-ack"> Ya la anoté en un lugar seguro</label>
     <p class="lock-err" id="lock-err" role="alert"></p>
     <button class="btn primary" type="button" data-act="rec-done">Entrar a la app</button>
@@ -548,6 +547,7 @@ async function lockApp(){
   screenUnlock();
   await saveChain;
   S = null; DOCS = []; DK = null;
+  UI.pendingImport = null; UI.encImport = null; UI.showRec = null; UI.pendingRaw = null;
 }
 /* Intentos fallidos guardados: recargar la página no reinicia la espera, y cada 5 fallos la espera se duplica (hasta 1 hora) */
 function failState(){ try { const s = JSON.parse(localStorage.getItem(FAIL_KEY)); return s && typeof s.n === 'number' ? s : {n:0, until:0}; } catch(e){ return {n:0, until:0}; } }
@@ -828,7 +828,7 @@ function vAjustes(){
   <section class="panel">
     <h3>Copia de seguridad</h3>
     <p class="note">Los datos se guardan solo en este navegador y en este dispositivo. Para pasarlos del celular a la PC (o al revés), o para no perderlos, hacé una copia y restaurala en el otro dispositivo.</p>
-    <div class="field"><label for="bk-pass">Contraseña para la copia (muy recomendado)</label><input id="bk-pass" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></div>
+    <div class="field"><label for="bk-pass">Contraseña para la copia (obligatoria, mínimo 8 caracteres)</label><input id="bk-pass" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></div>
     <p class="note small" style="margin:0">Con contraseña, la copia queda cifrada: si alguien la ve en tu WhatsApp, mail o Drive, no puede leer los DNI ni los datos. Sin la contraseña no se puede restaurar, así que anotala en un lugar seguro.</p>
     <div class="toolbar"><button class="btn primary" data-act="export-file">Descargar copia</button><button class="btn" data-act="export-copy">Copiar copia al portapapeles</button></div>
     <p class="note small">Si "Descargar" no hace nada (pasa en la versión online), usá "Copiar" y pegá el texto en una nota o en un chat contigo mismo.</p>
@@ -867,7 +867,7 @@ function commit(msg){ save(); render(); if(msg) toast(msg); }
 
 /* ---------- hojas ---------- */
 function openSheet(s){ UI.sheet = s; renderSheet(); $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; setTimeout(() => { const f = $('#sheetBox [autofocus]'); if(f) f.focus(); }, 30); }
-function closeSheet(){ UI.sheet = null; $('#sheet').hidden = true; document.body.style.overflow = ''; }
+function closeSheet(){ UI.sheet = null; $('#sheet').hidden = true; $('#sheetBox').innerHTML = ''; document.body.style.overflow = ''; }
 function sheetFrame(title, body){ return `<div class="sheet-hd"><h2>${title}</h2><button class="x" data-act="close" aria-label="Cerrar">×</button></div><div class="sheet-bd">${body}</div>`; }
 function renderSheet(){
   const s = UI.sheet, box = $('#sheetBox');
@@ -988,7 +988,7 @@ function renderSheet(){
     box.innerHTML = sheetFrame('Llave de recuperación nueva', `
       <p class="note">Anotala en papel y guardala en un lugar seguro. La llave anterior ya no sirve. Esta no se vuelve a mostrar.</p>
       <div class="reckey num">${esc(s.rec)}</div>
-      <div class="toolbar"><button class="btn" type="button" data-act="copy-rec">Copiar llave</button><button class="btn primary" type="button" data-act="close">Ya la anoté</button></div>`);
+      <div class="toolbar"><button class="btn primary" type="button" data-act="close">Ya la anoté</button></div>`);
   }
   else if(s.type === 'pay'){
     const l = loan(s.id); if(!l){ closeSheet(); return; }
@@ -1061,8 +1061,7 @@ async function decryptBackup(obj, pass){
 }
 async function buildExport(){
   const pass = ($('#bk-pass') || {}).value || '';
-  if(pass && pass.length < 8){ toast('La contraseña de la copia tiene que tener al menos 8 caracteres.'); return null; }
-  if(!pass) return exportData();
+  if(pass.length < 8){ toast('Poné una contraseña de al menos 8 caracteres para la copia.'); const i = $('#bk-pass'); if(i) i.focus(); return null; }
   try { return await encryptBackup(exportData(), pass); }
   catch(e){ toast('Este navegador no puede proteger la copia con contraseña.'); return null; }
 }
@@ -1144,7 +1143,6 @@ document.addEventListener('click', e => {
     case 'lock-now': lockApp(); break;
     case 'new-rec': newRecovery(); break;
     case 'use-recovery': useRecovery(); break;
-    case 'copy-rec': copyText(UI.showRec || (UI.sheet && UI.sheet.rec) || '', 'Llave copiada'); break;
     case 'rec-done': if(!$('#rec-ack').checked){ lockErr('Marcá que ya la anotaste.'); break; } UI.showRec = null; unlockApp(); break;
     case 'forgot': $('#lock-forgot').hidden = !$('#lock-forgot').hidden; break;
     case 'forgot-wipe': {
