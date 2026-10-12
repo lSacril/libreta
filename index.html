@@ -2,7 +2,7 @@
 <html lang="es">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nmLxHdX3nJoDQptis/pNaNaNABacEfsnlxvgWfK7rbw=' 'sha256-MHVigBoUsmMMO1dQ3kcrjFdoEvgtE1lan4nscMBVZYY=' 'sha256-acLtK7AlAr8a/i1Z2BojJMlSISrY3a8pzbetOospih0='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nmLxHdX3nJoDQptis/pNaNaNABacEfsnlxvgWfK7rbw=' 'sha256-6cxY+imh+3o0TkNFLEvgqcRaJSJ4umCPl8nIM+9V21k=' 'sha256-acLtK7AlAr8a/i1Z2BojJMlSISrY3a8pzbetOospih0='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
 <meta name="referrer" content="no-referrer">
 <style id="fb">html{display:none!important}</style>
 <script>if (self === top) { document.getElementById('fb').remove(); } else { try { top.location = self.location.href; } catch (e) {} }</script>
@@ -217,6 +217,8 @@ tr.is-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
 .doc img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:var(--rule)}
 .doc span{padding:7px 9px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:1px;min-width:0}
 .doc b{color:var(--ink);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pdf-thumb{aspect-ratio:3/4;display:grid;place-items:center;background:var(--bad-soft);color:var(--bad);font-family:var(--f-display);font-weight:800;font-size:22px;letter-spacing:.04em}
+.doc-group{display:flex;flex-direction:column;gap:8px}
 .doc-full{width:100%;max-width:100%;border-radius:10px;border:1px solid var(--line);background:var(--paper)}
 
 /* Bloqueo con PIN */
@@ -744,6 +746,28 @@ function compressImage(file){
   });
 }
 const docsOf = clientId => DOCS.filter(d => d.clientId === clientId);
+const DOC_KINDS = {pagare:'Pagaré', sueldo:'Recibo de sueldo del cliente', sueldoGar:'Recibo de sueldo del garante', dni:'DNI', otro:'Otro'};
+const kindOf = d => Object.prototype.hasOwnProperty.call(DOC_KINDS, d.kind) ? d.kind : 'pagare';
+const isPdf = d => typeof d.data === 'string' && d.data.startsWith('data:application/pdf;base64,');
+/* Lee un PDF y comprueba que de verdad lo sea (empieza con %PDF-) */
+function readPdf(file){
+  return new Promise((res, rej) => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      const out = String(rd.result).replace(/^data:[^;,]*;base64,/, 'data:application/pdf;base64,');
+      try { if(!atob(out.slice(28, 36)).startsWith('%PDF-') || !sDocData(out)) return rej(new Error('pdf')); } catch(e){ return rej(e); }
+      res(out);
+    };
+    rd.onerror = () => rej(rd.error);
+    rd.readAsDataURL(file);
+  });
+}
+function openPdf(d){
+  const url = URL.createObjectURL(new Blob([unb64(d.data.slice(d.data.indexOf(',') + 1))], {type:'application/pdf'}));
+  const w = window.open(url, '_blank');
+  if(!w){ const a = document.createElement('a'); a.href = url; a.download = String(d.name || 'documento').replace(/[^\w.-]+/g, '_').replace(/(\.pdf)?$/i, '.pdf'); document.body.appendChild(a); a.click(); a.remove(); }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 const defaultRate = (cat, freq) => { const m = S.settings.rates[cat] ?? 6; return freq === 'semanal' ? weeklyFromMonthly(m) : m; };
 
 /* ---------- ficha del cliente ---------- */
@@ -859,7 +883,7 @@ function vClientes(){
   const rows = S.clients.slice().sort((a,b) => a.name.localeCompare(b.name, 'es')).map(c => {
     const ls = S.loans.filter(l => l.clientId === c.id).map(loanStats);
     const owed = ls.reduce((s,x) => s + x.owed, 0), late = ls.some(x => x.status === 'atrasado'), act = ls.filter(x => x.status !== 'terminado').length;
-    return `<button class="row" data-act="open-client" data-id="${c.id}"><span class="t" style="display:flex;gap:10px;align-items:center">${catBadge(c.cat)}<span>${esc(c.name)}</span></span><span class="d">${act} activo${act===1?'':'s'}${c.dni ? ' · DNI ' + esc(c.dni) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${docsOf(c.id).length ? ' · ' + docsOf(c.id).length + ' pagaré' + (docsOf(c.id).length === 1 ? '' : 's') : ''}</span><span class="a"><span class="num" style="font-weight:700">${money(owed)}</span>${late ? pill('atrasado') : ''}</span></button>`;
+    return `<button class="row" data-act="open-client" data-id="${c.id}"><span class="t" style="display:flex;gap:10px;align-items:center">${catBadge(c.cat)}<span>${esc(c.name)}</span></span><span class="d">${act} activo${act===1?'':'s'}${c.dni ? ' · DNI ' + esc(c.dni) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${docsOf(c.id).length ? ' · ' + docsOf(c.id).length + ' documento' + (docsOf(c.id).length === 1 ? '' : 's') : ''}</span><span class="a"><span class="num" style="font-weight:700">${money(owed)}</span>${late ? pill('atrasado') : ''}</span></button>`;
   }).join('');
   const r = S.settings.rates;
   return `
@@ -942,7 +966,7 @@ function render(){
   const lastBk = S.settings.lastBackup, bkDays = lastBk ? daysBetween(lastBk, today()) : null;
   if(hasReal && (bkDays === null || bkDays >= 14)) b += `<div class="banner"><span><b>${bkDays === null ? 'Todavía no hiciste ninguna copia de seguridad.' : 'Hace ' + bkDays + ' días que no hacés una copia de seguridad.'}</b> Si perdés el celular, perdés todo.</span><button class="btn sm primary" data-act="go-backup">Hacer copia ahora</button></div>`;
   if(ex) b += `<div class="banner"><span><b>Datos de ejemplo.</b> Marta, Diego y Lucía son inventados para que veas cómo funciona.</span><button class="btn sm" data-act="clear-examples">Borrar ejemplos y empezar</button></div>`;
-  if(!DB.ok) b += `<div class="banner"><span><b>Las fotos de pagarés no se pueden guardar</b> en este navegador. Se ven ahora, pero se pierden al cerrar.</span></div>`;
+  if(!DB.ok) b += `<div class="banner"><span><b>Los documentos no se pueden guardar</b> en este navegador. Se ven ahora, pero se pierden al cerrar.</span></div>`;
   if(!storageOK) b += `<div class="banner"><span><b>No se pueden guardar datos</b> en este navegador (modo incógnito o almacenamiento bloqueado). Lo que cargues se pierde al cerrar.</span></div>`;
   UI.bannerHtml = b;
   $('#banner').innerHTML = UI.tab === 'resumen' ? '' : b;
@@ -980,7 +1004,7 @@ function renderSheet(){
         <div><dt>Falta cobrar</dt><dd style="color:${st.overdue > .5 ? 'var(--bad)' : 'inherit'}">${money(st.owed)}</dd></div>
       </dl>
       <p class="note small" style="margin:0">Cuotas ${PER[freqOf(l)].plural} · tasa ${pct(l.rate)} ${PER[freqOf(l)].word}${freqOf(l) === 'semanal' ? ' (≈ ' + pct(r2(monthlyFromWeekly(l.rate))) + ' mensual)' : ''} · equivale a ${pct(Math.round(teaP(l.rate, freqOf(l))))} anual (TEA)</p>
-      ${(() => { const n = DOCS.filter(d => d.loanId === l.id).length; return `<div class="toolbar"><span class="muted small" style="flex:1">${n ? n + ' foto' + (n === 1 ? '' : 's') + ' de pagaré' : 'Sin foto del pagaré'}</span><button class="btn sm" data-act="open-client-docs" data-id="${l.clientId}" data-loan="${l.id}">${n ? 'Ver pagarés' : 'Cargar pagaré'}</button></div>`; })()}
+      ${(() => { const n = DOCS.filter(d => d.loanId === l.id && kindOf(d) === 'pagare').length; return `<div class="toolbar"><span class="muted small" style="flex:1">${n ? n + ' foto' + (n === 1 ? '' : 's') + ' de pagaré' : 'Sin foto del pagaré'}</span><button class="btn sm" data-act="open-client-docs" data-id="${l.clientId}" data-loan="${l.id}">${n ? 'Ver pagarés' : 'Cargar pagaré'}</button></div>`; })()}
       <div class="bar"><i style="width:${st.total ? Math.min(100, st.paid / st.total * 100) : 0}%"></i></div>
       <div><h3>Cronograma · ${l.n} cuotas ${PER[freqOf(l)].plural}</h3>
       <div class="tbl-wrap"><table><thead><tr><th>N°</th><th>Vence</th><th class="r">Cuota</th><th class="r">Pagado</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>
@@ -1028,19 +1052,25 @@ function renderSheet(){
     const ls = s.id ? S.loans.filter(l => l.clientId === c.id) : [];
     const docs = s.id ? docsOf(c.id).sort((a,b) => (b.date || '').localeCompare(a.date || '')) : [];
     const pane = s.id ? (s.pane || 'datos') : 'datos';
-    const seg = s.id ? `<div class="seg" role="tablist"><button type="button" role="tab" data-act="pane" data-pane="datos" aria-selected="${pane === 'datos'}">Datos y préstamos</button><button type="button" role="tab" data-act="pane" data-pane="pagares" aria-selected="${pane === 'pagares'}">Pagarés <span class="num">${docs.length}</span></button></div>` : '';
+    const seg = s.id ? `<div class="seg" role="tablist"><button type="button" role="tab" data-act="pane" data-pane="datos" aria-selected="${pane === 'datos'}">Datos y préstamos</button><button type="button" role="tab" data-act="pane" data-pane="pagares" aria-selected="${pane === 'pagares'}">Documentos <span class="num">${docs.length}</span></button></div>` : '';
     if(pane === 'pagares'){
       const loanLabel = id => { const l = id && loan(id); return l ? money(l.amount) + ' en ' + l.n + ' cuotas' : 'General'; };
-      const tiles = docs.map(d => `<button class="doc" data-act="open-doc" data-id="${d.id}"><img src="${esc(sImg(d.data))}" alt="Pagaré de ${esc(c.name)}" loading="lazy"><span><b>${esc(loanLabel(d.loanId))}</b>${fdate(d.date)}</span></button>`).join('');
+      const tile = d => `<button class="doc" data-act="open-doc" data-id="${d.id}">${isPdf(d) ? '<div class="pdf-thumb">PDF</div>' : `<img src="${esc(sImg(d.data))}" alt="${esc(DOC_KINDS[kindOf(d)])} de ${esc(c.name)}" loading="lazy">`}<span><b>${kindOf(d) === 'pagare' ? esc(loanLabel(d.loanId)) : esc(d.name || DOC_KINDS[kindOf(d)])}</b>${fdate(d.date)}</span></button>`;
+      const groups = Object.keys(DOC_KINDS).map(k => { const list = docs.filter(d => kindOf(d) === k); return list.length ? `<div class="doc-group"><h3 style="margin:0">${DOC_KINDS[k]} · ${list.length}</h3><div class="docs">${list.map(tile).join('')}</div></div>` : ''; }).join('');
       const opts = ls.map(l => `<option value="${l.id}" ${s.loanId === l.id ? 'selected' : ''}>${money(l.amount)} en ${l.n} cuotas (${fdate(l.created)})</option>`).join('');
+      const kind = Object.prototype.hasOwnProperty.call(DOC_KINDS, s.kind) ? s.kind : 'pagare';
       box.innerHTML = sheetFrame(`${catBadge(c.cat)} ${esc(c.name)}`, `${seg}
         <div class="panel">
-          <div class="field"><label for="doc-loan">¿De qué préstamo es?</label><select id="doc-loan"><option value="">General (sin préstamo)</option>${opts}</select></div>
-          <div class="toolbar"><label class="btn primary" for="doc-file" tabindex="0">+ Cargar foto del pagaré</label><input id="doc-file" type="file" accept="image/*" multiple hidden></div>
-          <p class="note small">Desde el celular podés sacar la foto en el momento o elegirla de la galería. Se achica sola para ocupar poco lugar.</p>
+          <div class="grid2">
+            <div class="field"><label for="doc-kind">¿Qué vas a subir?</label><select id="doc-kind">${Object.entries(DOC_KINDS).map(([k, v]) => `<option value="${k}" ${k === kind ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label for="doc-loan">¿De qué préstamo es?</label><select id="doc-loan"><option value="">General (sin préstamo)</option>${opts}</select></div>
+          </div>
+          ${kind === 'sueldoGar' && !c.refName ? '<p class="note small" style="margin:0">Este cliente todavía no tiene cargado un garante. Podés completarlo en la solapa "Datos y préstamos".</p>' : ''}
+          <div class="toolbar"><label class="btn primary" for="doc-file" tabindex="0">+ Subir foto o PDF</label><input id="doc-file" type="file" accept="image/*,application/pdf,.pdf" multiple hidden></div>
+          <p class="note small">Desde el celular podés sacar la foto en el momento o elegir una foto o un PDF guardado. Fotos de hasta 25 MB (se achican solas) y PDF de hasta 10 MB. Todo queda cifrado.</p>
         </div>
-        <div class="docs">${tiles || '<div class="empty" style="grid-column:1/-1">Todavía no cargaste pagarés de este cliente.</div>'}</div>
-        <p class="note small">Guardá siempre el pagaré original en papel. La foto sirve de referencia, pero para reclamar vale el original firmado.</p>`);
+        ${groups || '<div class="empty">Todavía no subiste documentos de este cliente.</div>'}
+        <p class="note small">Guardá siempre los originales en papel, sobre todo el pagaré: para reclamar vale el original firmado.</p>`);
       return;
     }
     const lrows = ls.map(l => { const st = loanStats(l); return `<button class="row" data-act="open-loan" data-id="${l.id}"><span class="t">${money(l.amount)} en ${l.n} cuotas</span><span class="d">${fdate(l.created)} · cuotas ${PER[freqOf(l)].plural} · ${pct(l.rate)} ${PER[freqOf(l)].word}</span><span class="a"><span class="num">${money(st.owed)}</span>${pill(st.status)}</span></button>`; }).join('');
@@ -1058,11 +1088,16 @@ function renderSheet(){
     const d = DOCS.find(x => x.id === s.id); if(!d){ closeSheet(); return; }
     const c = client(d.clientId);
     const opts = S.loans.filter(l => l.clientId === d.clientId).map(l => `<option value="${l.id}" ${d.loanId === l.id ? 'selected' : ''}>${money(l.amount)} en ${l.n} cuotas (${fdate(l.created)})</option>`).join('');
-    box.innerHTML = sheetFrame(`Pagaré · ${esc(c.name)}`, `
-      <img class="doc-full" src="${esc(sImg(d.data))}" alt="Pagaré de ${esc(c.name)}">
-      <div class="field"><label for="doc-relink">Préstamo</label><select id="doc-relink" data-id="${d.id}"><option value="">General (sin préstamo)</option>${opts}</select></div>
+    box.innerHTML = sheetFrame(`${esc(DOC_KINDS[kindOf(d)])} · ${esc(c.name)}`, `
+      ${isPdf(d) ? `<div class="panel" style="flex-direction:row;align-items:center;gap:14px"><div class="pdf-thumb" style="width:72px;flex:none;font-size:16px">PDF</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><b style="overflow-wrap:anywhere">${esc(d.name || 'Documento PDF')}</b><button class="btn primary" data-act="open-pdf" data-id="${d.id}">Abrir PDF</button></div></div>
+      <p class="note small" style="margin:0">El PDF se abre en otra pestaña o se descarga. Si se descarga, queda una copia sin cifrar en la carpeta Descargas: borrala cuando termines.</p>`
+      : `<img class="doc-full" src="${esc(sImg(d.data))}" alt="${esc(DOC_KINDS[kindOf(d)])} de ${esc(c.name)}">`}
+      <div class="grid2">
+        <div class="field"><label for="doc-kind-edit">Tipo</label><select id="doc-kind-edit" data-id="${d.id}">${Object.entries(DOC_KINDS).map(([k, v]) => `<option value="${k}" ${k === kindOf(d) ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label for="doc-relink">Préstamo</label><select id="doc-relink" data-id="${d.id}"><option value="">General (sin préstamo)</option>${opts}</select></div>
+      </div>
       <p class="note small" style="margin:0">Cargado el ${fdate(d.date)}${d.name ? ' · ' + esc(d.name) : ''}</p>
-      <div class="toolbar"><button class="btn" data-act="open-client-docs" data-id="${d.clientId}">Volver a ${esc(c.name.split(' ')[0])}</button><span style="flex:1"></span><button class="btn danger" data-act="del-doc" data-id="${d.id}" data-confirm="Tocá de nuevo para borrar">Borrar foto</button></div>`);
+      <div class="toolbar"><button class="btn" data-act="open-client-docs" data-id="${d.clientId}">Volver a ${esc(c.name.split(' ')[0])}</button><span style="flex:1"></span><button class="btn danger" data-act="del-doc" data-id="${d.id}" data-confirm="Tocá de nuevo para borrar">Borrar documento</button></div>`);
   }
   else if(s.type === 'caja'){
     const movs = S.caja.map(m => ({date:m.date, amount:m.amount, text:m.note || (m.amount >= 0 ? 'Capital sumado' : 'Capital retirado'), id:m.id}));
@@ -1285,6 +1320,7 @@ const sNum = (v, d = 0, lo = -1e12, hi = 1e12) => { const p = prim(v); const n =
 const validISO = x => { if(!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false; const [y, m, dd] = x.split('-').map(Number); if(y < 1900 || y > 2100) return false; const u = new Date(Date.UTC(y, m - 1, dd)); return u.getUTCMonth() === m - 1 && u.getUTCDate() === dd; };
 const sDate = (v, d) => { const p = prim(v); return typeof p === 'string' && validISO(p) ? p : d; };
 const sStr = (v, max = 2000) => String(prim(v) ?? '').slice(0, max);
+const sDocData = v => { const p = prim(v); return typeof p === 'string' && p.length < 15e6 && /^data:(image\/(jpeg|png|webp)|application\/pdf);base64,[A-Za-z0-9+/=]+$/.test(p) ? p : ''; };
 const sImg = v => { const p = prim(v); return typeof p === 'string' && p.length < 15e6 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p) ? p : ''; };
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const LIMITS = {clients:5000, loans:10000, cuotas:520, payments:1000, caja:20000, docs:2000};
@@ -1313,7 +1349,7 @@ function sanitize(d){
     mora:{rate:clamp(mo.rate, 0, 5, 0.3), grace:clamp(mo.grace, 0, 60, 3), cap:clamp(mo.cap, 0, 200, 50)}, payoffDisc:clamp(st.payoffDisc, 0, 100, 50), advanceDisc:clamp(st.advanceDisc, 0, 100, 10),
     lenderName:sStr(st.lenderName, 100)};
   if(sDate(st.lastBackup, '') && st.lastBackup <= t) settings.lastBackup = st.lastBackup;
-  const docs = Array.isArray(d.docs) ? d.docs.filter(isObj).slice(0, LIMITS.docs).map(x => ({id:sId(x.id), clientId:sId(x.clientId), loanId:sOptId(x.loanId), date:sDate(x.date, t), name:sStr(x.name, 200), data:sImg(x.data)})).filter(x => x.data) : null;
+  const docs = Array.isArray(d.docs) ? d.docs.filter(isObj).slice(0, LIMITS.docs).map(x => ({id:sId(x.id), clientId:sId(x.clientId), loanId:sOptId(x.loanId), kind:Object.prototype.hasOwnProperty.call(DOC_KINDS, x.kind) ? x.kind : 'pagare', date:sDate(x.date, t), name:sStr(x.name, 200), data:sDocData(x.data)})).filter(x => x.data) : null;
   return {settings, clients, loans, caja, docs};
 }
 
@@ -1330,7 +1366,7 @@ function stageImport(text){
   if(!valid(d)){ toast('El texto no es una copia válida.'); return; }
   try { d = sanitize(d); } catch(e){ toast('El texto no es una copia válida.'); return; }
   UI.pendingImport = d;
-  $('#imp-confirm').innerHTML = `<div class="banner"><span>La copia tiene <b>${d.clients.length} clientes</b> y <b>${d.loans.length} préstamos</b>${Array.isArray(d.docs) ? ' y <b>' + d.docs.length + ' fotos de pagarés</b>' : ''}. ${d.clients.length ? ' Clientes: ' + d.clients.slice(0, 5).map(c => '<b>' + esc(c.name) + '</b>').join(', ') + (d.clients.length > 5 ? '…' : '') + '.' : ''} Al restaurarla se reemplaza todo lo que hay ahora.</span><button class="btn sm primary" data-act="import-confirm">Restaurar copia</button></div>`;
+  $('#imp-confirm').innerHTML = `<div class="banner"><span>La copia tiene <b>${d.clients.length} clientes</b> y <b>${d.loans.length} préstamos</b>${Array.isArray(d.docs) ? ' y <b>' + d.docs.length + ' documentos</b>' : ''}. ${d.clients.length ? ' Clientes: ' + d.clients.slice(0, 5).map(c => '<b>' + esc(c.name) + '</b>').join(', ') + (d.clients.length > 5 ? '…' : '') + '.' : ''} Al restaurarla se reemplaza todo lo que hay ahora.</span><button class="btn sm primary" data-act="import-confirm">Restaurar copia</button></div>`;
 }
 
 document.addEventListener('click', e => {
@@ -1405,9 +1441,10 @@ document.addEventListener('click', e => {
     }
     case 'del-mov': S.caja = S.caja.filter(m => m.id !== id); commit('Movimiento borrado'); break;
     case 'pane': UI.sheet.pane = el.dataset.pane; renderSheet(); break;
-    case 'open-client-docs': openSheet({type:'client', id, pane:'pagares', loanId:el.dataset.loan}); break;
+    case 'open-client-docs': openSheet({type:'client', id, pane:'pagares', loanId:el.dataset.loan, kind:el.dataset.loan ? 'pagare' : undefined}); break;
     case 'open-doc': openSheet({type:'doc', id}); break;
-    case 'del-doc': { const d = DOCS.find(x => x.id === id); DOCS = DOCS.filter(x => x.id !== id); DB.del(id); UI.sheet = {type:'client', id:d.clientId, pane:'pagares'}; commit('Foto borrada'); break; }
+    case 'open-pdf': { const d = DOCS.find(x => x.id === id); if(d && isPdf(d)) openPdf(d); break; }
+    case 'del-doc': { const d = DOCS.find(x => x.id === id); DOCS = DOCS.filter(x => x.id !== id); DB.del(id); UI.sheet = {type:'client', id:d.clientId, pane:'pagares', kind:kindOf(d)}; commit('Documento borrado'); break; }
     case 'del-client': docsOf(id).forEach(d => DB.del(d.id)); DOCS = DOCS.filter(d => d.clientId !== id); S.loans = S.loans.filter(l => l.clientId !== id); S.clients = S.clients.filter(c => c.id !== id); closeSheet(); commit('Cliente borrado'); break;
     case 'reminder': {
       const l = loan(id), st = loanStats(l), c = client(l.clientId), q = st.next, rest = q.amount - paidOf(q);
@@ -1482,21 +1519,31 @@ document.addEventListener('change', e => {
   if(t.id === 'ad-mora') updateAdvance();
   if(t.id === 'lock-after'){ S.settings.lockAfter = Number(t.value); save(); toast('Guardado'); }
   if(t.id === 'doc-relink'){ const d = DOCS.find(x => x.id === t.dataset.id); d.loanId = t.value || null; DB.put(d); toast('Guardado'); }
+  if(t.id === 'doc-kind' && UI.sheet){ UI.sheet.kind = t.value; renderSheet(); }
+  if(t.id === 'doc-kind-edit'){ const d = DOCS.find(x => x.id === t.dataset.id); if(d && Object.prototype.hasOwnProperty.call(DOC_KINDS, t.value)){ d.kind = t.value; DB.put(d); renderSheet(); toast('Guardado'); } }
   if(t.id === 'doc-file' && t.files.length){
     const files = [...t.files], clientId = UI.sheet.id, loanId = $('#doc-loan').value || null;
-    toast('Cargando ' + files.length + ' foto' + (files.length === 1 ? '' : 's') + '…');
+    const kind = Object.prototype.hasOwnProperty.call(DOC_KINDS, $('#doc-kind').value) ? $('#doc-kind').value : 'pagare';
+    toast('Cargando ' + files.length + ' archivo' + (files.length === 1 ? '' : 's') + '…');
     (async () => {
       let ok = 0;
       for(const f of files){
-        if(!/^image\/(jpeg|png|webp|heic|heif|gif|bmp)$/i.test(f.type) || !(f.size > 0 && f.size < 25e6)) continue;
         if(UI.locked) break;
-        try { const data = await compressImage(f); if(UI.locked) break; const d = {id:uid(), clientId, loanId, date:today(), name:f.name, data}; await DB.put(d); if(UI.locked) break; DOCS.push(d); ok++; }
-        catch(err){}
+        const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+        if(pdf ? !(f.size > 0 && f.size < 10e6) : (!/^image\/(jpeg|png|webp|heic|heif|gif|bmp)$/i.test(f.type) || !(f.size > 0 && f.size < 25e6))) continue;
+        try {
+          const data = pdf ? await readPdf(f) : await compressImage(f);
+          if(UI.locked) break;
+          const d = {id:uid(), clientId, loanId, kind, date:today(), name:String(f.name).slice(0, 200), data};
+          await DB.put(d);
+          if(UI.locked) break;
+          DOCS.push(d); ok++;
+        } catch(err){}
       }
       if(UI.locked) return;
-      if(UI.sheet && UI.sheet.type === 'client' && UI.sheet.id === clientId){ UI.sheet.loanId = loanId; }
+      if(UI.sheet && UI.sheet.type === 'client' && UI.sheet.id === clientId){ UI.sheet.loanId = loanId; UI.sheet.kind = kind; }
       render();
-      toast(ok === files.length ? (ok === 1 ? 'Pagaré guardado' : ok + ' pagarés guardados') : 'Algunas fotos no se cargaron: tienen que ser JPG, PNG o WEBP de menos de 25 MB.');
+      toast(ok === files.length ? (ok === 1 ? 'Documento guardado' : ok + ' documentos guardados') : 'Algunos archivos no se cargaron: tienen que ser fotos (JPG, PNG o WEBP) de hasta 25 MB o PDF de hasta 10 MB.');
     })();
   }
   if(t.id === 'imp-file' && t.files[0] && t.files[0].size > 40e6){ toast('El archivo es demasiado grande para ser una copia de la Libreta.'); t.value = ''; return; }

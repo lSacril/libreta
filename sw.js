@@ -1,6 +1,6 @@
 // Guarda la app para que funcione sin internet. Primero intenta la red (para recibir actualizaciones) y si no hay, usa lo guardado.
 // Solo se ocupa de archivos de la propia app y solo guarda respuestas correctas.
-const CACHE = 'libreta-v6';
+const CACHE = 'libreta-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
   './fonts/bricolage.woff2', './fonts/publicsans.woff2', './fonts/jetbrainsmono.woff2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
